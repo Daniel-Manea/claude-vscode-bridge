@@ -3,7 +3,12 @@
   "displayName": "Claude Code - VS Code Bridge",
   "description": "Bridges your VS Code selection to Claude CLI in real time",
   "version": "1.0.0",
-  "publisher": "priceshape",
+  "publisher": "Daniel-Manea",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Daniel-Manea/claude-vscode-bridge"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
