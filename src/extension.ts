@@ -76,14 +76,38 @@ function ensureClaudeSettings(): void {
       existing = JSON.parse(readFileSync(CLAUDE_SETTINGS_LOCAL, "utf-8"));
     }
 
-    // Check if our config is already there
-    const hasHook = JSON.stringify(existing.hooks) === JSON.stringify(CLAUDE_BRIDGE_CONFIG.hooks);
-    const hasStatusLine = JSON.stringify(existing.statusLine) === JSON.stringify(CLAUDE_BRIDGE_CONFIG.statusLine);
+    // Deep-merge hooks: preserve existing hook events, add ours
+    const existingHooks = (existing.hooks ?? {}) as Record<string, unknown[]>;
+    const ourHooks = CLAUDE_BRIDGE_CONFIG.hooks;
+    const ourHookCommand = ourHooks.UserPromptSubmit[0].hooks[0].command;
 
-    if (hasHook && hasStatusLine) return;
+    // Check if our hook is already present
+    const existingPromptHooks = (existingHooks.UserPromptSubmit ?? []) as Array<{hooks?: Array<{command?: string}>}>;
+    const hasOurHook = existingPromptHooks.some(
+      (entry) => entry.hooks?.some((h) => h.command === ourHookCommand)
+    );
 
-    // Merge our config in
-    const merged = { ...existing, ...CLAUDE_BRIDGE_CONFIG };
+    // Check if our status line is already present
+    const existingStatusLine = existing.statusLine as {command?: string} | undefined;
+    const hasStatusLine = existingStatusLine?.command === CLAUDE_BRIDGE_CONFIG.statusLine.command;
+
+    if (hasOurHook && hasStatusLine) return;
+
+    // Merge hooks: add our UserPromptSubmit entry alongside existing hook events
+    const mergedHooks = { ...existingHooks };
+    if (!hasOurHook) {
+      mergedHooks.UserPromptSubmit = [
+        ...existingPromptHooks,
+        ...ourHooks.UserPromptSubmit,
+      ];
+    }
+
+    // Merge: keep all existing settings, add/update ours
+    const merged = {
+      ...existing,
+      hooks: mergedHooks,
+      statusLine: CLAUDE_BRIDGE_CONFIG.statusLine,
+    };
     writeFileSync(CLAUDE_SETTINGS_LOCAL, JSON.stringify(merged, null, 2));
 
     vscode.window
