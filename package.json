@@ -36,7 +36,7 @@
         {
           "id": "claude-bridge",
           "title": "Claude Bridge",
-          "icon": "$(hubot)"
+          "icon": "media/icon.svg"
         }
       ]
     },
