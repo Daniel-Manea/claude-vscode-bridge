@@ -1,7 +1,7 @@
 {
   "name": "claude-vscode-bridge",
   "displayName": "Claude Code - VS Code Bridge",
-  "description": "Bridges your VS Code selection to Claude CLI in real time",
+  "description": "Bridge your VS Code selections to Claude CLI in real time. Select code, ask Claude — it sees your selection automatically.",
   "version": "1.0.2",
   "publisher": "Daniel-Manea",
   "license": "MIT",
@@ -13,7 +13,18 @@
     "vscode": "^1.85.0"
   },
   "categories": [
+    "AI",
     "Other"
+  ],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "anthropic",
+    "ai",
+    "selection",
+    "bridge",
+    "terminal",
+    "cli"
   ],
   "activationEvents": [
     "onStartupFinished"
@@ -23,9 +34,119 @@
     "commands": [
       {
         "command": "claude-bridge.clearSelection",
-        "title": "Claude Bridge: Clear Selection"
+        "title": "Clear Selection",
+        "category": "Claude Bridge"
+      },
+      {
+        "command": "claude-bridge.setup",
+        "title": "Setup Claude Code Integration",
+        "category": "Claude Bridge"
+      },
+      {
+        "command": "claude-bridge.preview",
+        "title": "Preview Current Selection",
+        "category": "Claude Bridge"
+      },
+      {
+        "command": "claude-bridge.removeConfig",
+        "title": "Remove Claude Code Configuration",
+        "category": "Claude Bridge"
       }
-    ]
+    ],
+    "configuration": {
+      "title": "Claude Bridge",
+      "properties": {
+        "claudeBridge.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable the selection bridge"
+        },
+        "claudeBridge.contextInjection": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically inject selected code into Claude's context on every message"
+        },
+        "claudeBridge.statusLine": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show current selection in Claude CLI's status bar"
+        },
+        "claudeBridge.autoSetup": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically configure Claude Code settings.json on activation"
+        },
+        "claudeBridge.maxLines": {
+          "type": "number",
+          "default": 500,
+          "minimum": 1,
+          "maximum": 5000,
+          "description": "Maximum number of selected lines to send to Claude (larger selections are truncated)"
+        },
+        "claudeBridge.debounceMs": {
+          "type": "number",
+          "default": 30,
+          "minimum": 10,
+          "maximum": 500,
+          "description": "Debounce delay in milliseconds before writing selection to disk"
+        },
+        "claudeBridge.statusLineMaxPath": {
+          "type": "number",
+          "default": 30,
+          "minimum": 10,
+          "maximum": 100,
+          "description": "Maximum path length in status line before truncation"
+        },
+        "claudeBridge.contextPrefix": {
+          "type": "string",
+          "default": "[VS Code Selection]",
+          "description": "Prefix shown before the file path in context injection"
+        },
+        "claudeBridge.showPartialLineContext": {
+          "type": "boolean",
+          "default": true,
+          "description": "For partial line selections, show the full line with caret markers"
+        },
+        "claudeBridge.statusLineSegments": {
+          "type": "object",
+          "default": {
+            "model": true,
+            "gitBranch": true,
+            "contextBar": true,
+            "contextPercentage": true,
+            "cost": false,
+            "linesChanged": false,
+            "rateLimits": false,
+            "sessionDuration": false,
+            "selection": true
+          },
+          "description": "Choose which segments to show in Claude CLI's status bar",
+          "properties": {
+            "model": { "type": "boolean", "description": "Model name (e.g., Opus 4.6)" },
+            "gitBranch": { "type": "boolean", "description": "Current git branch" },
+            "contextBar": { "type": "boolean", "description": "Context window progress bar (green/yellow/red)" },
+            "contextPercentage": { "type": "boolean", "description": "Context window usage %" },
+            "cost": { "type": "boolean", "description": "Session cost in USD" },
+            "linesChanged": { "type": "boolean", "description": "Lines added/removed this session" },
+            "rateLimits": { "type": "boolean", "description": "5-hour and 7-day rate limit usage" },
+            "sessionDuration": { "type": "boolean", "description": "Session wall-clock duration" },
+            "selection": { "type": "boolean", "description": "Current VS Code selection (@file#lines)" }
+          }
+        },
+        "claudeBridge.settingsTarget": {
+          "type": "string",
+          "default": "user",
+          "enum": ["user", "project", "projectLocal", "ask"],
+          "enumDescriptions": [
+            "~/.claude/settings.json — applies to all projects (recommended)",
+            ".claude/settings.json — project only, shared via git with team",
+            ".claude/settings.local.json — project only, gitignored",
+            "Ask me every time"
+          ],
+          "description": "Where to write Claude Code configuration"
+        }
+      }
+    }
   },
   "scripts": {
     "compile": "tsc -p ./",
