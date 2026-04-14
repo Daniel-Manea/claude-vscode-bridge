@@ -72,53 +72,61 @@ function ensureClaudeSettings(): void {
       mkdirSync(CLAUDE_SETTINGS_DIR, { recursive: true });
     }
 
-    // --- Hooks → settings.local.json ---
-    let existingLocal: Record<string, unknown> = {};
-    if (existsSync(CLAUDE_SETTINGS_LOCAL)) {
-      existingLocal = JSON.parse(readFileSync(CLAUDE_SETTINGS_LOCAL, "utf-8"));
+    // --- Everything → settings.json (the only file Claude reliably reads) ---
+    let existing: Record<string, unknown> = {};
+    if (existsSync(CLAUDE_SETTINGS_JSON)) {
+      existing = JSON.parse(readFileSync(CLAUDE_SETTINGS_JSON, "utf-8"));
     }
 
-    const existingHooks = (existingLocal.hooks ?? {}) as Record<string, unknown[]>;
+    // Check hooks
+    const existingHooks = (existing.hooks ?? {}) as Record<string, unknown[]>;
     const ourHooks = CLAUDE_BRIDGE_CONFIG.hooks;
     const ourHookCommand = ourHooks.UserPromptSubmit[0].hooks[0].command;
-
     const existingPromptHooks = (existingHooks.UserPromptSubmit ?? []) as Array<{hooks?: Array<{command?: string}>}>;
     const hasOurHook = existingPromptHooks.some(
       (entry) => entry.hooks?.some((h) => h.command === ourHookCommand)
     );
 
-    // --- StatusLine → settings.json (only place Claude reads it) ---
-    let existingMain: Record<string, unknown> = {};
-    if (existsSync(CLAUDE_SETTINGS_JSON)) {
-      existingMain = JSON.parse(readFileSync(CLAUDE_SETTINGS_JSON, "utf-8"));
-    }
-
-    const existingStatusLine = existingMain.statusLine as {command?: string} | undefined;
+    // Check statusLine
+    const existingStatusLine = existing.statusLine as {command?: string} | undefined;
     const hasStatusLine = existingStatusLine?.command === CLAUDE_BRIDGE_CONFIG.statusLine.command;
 
     if (hasOurHook && hasStatusLine) return;
 
     let changed = false;
 
-    // Merge hooks into settings.local.json
+    // Deep-merge hooks
     if (!hasOurHook) {
       const mergedHooks = { ...existingHooks };
       mergedHooks.UserPromptSubmit = [
         ...existingPromptHooks,
         ...ourHooks.UserPromptSubmit,
       ];
-      // Remove statusLine from local if it was there from a previous version
-      const { statusLine: _removed, ...localWithoutStatusLine } = existingLocal;
-      const mergedLocal = { ...localWithoutStatusLine, hooks: mergedHooks };
-      writeFileSync(CLAUDE_SETTINGS_LOCAL, JSON.stringify(mergedLocal, null, 2));
+      existing.hooks = mergedHooks;
       changed = true;
     }
 
-    // Merge statusLine into settings.json
+    // Add statusLine
     if (!hasStatusLine) {
-      const mergedMain = { ...existingMain, statusLine: CLAUDE_BRIDGE_CONFIG.statusLine };
-      writeFileSync(CLAUDE_SETTINGS_JSON, JSON.stringify(mergedMain, null, 2));
+      existing.statusLine = CLAUDE_BRIDGE_CONFIG.statusLine;
       changed = true;
+    }
+
+    if (changed) {
+      writeFileSync(CLAUDE_SETTINGS_JSON, JSON.stringify(existing, null, 2));
+    }
+
+    // Clean up old settings.local.json entries from previous versions
+    if (existsSync(CLAUDE_SETTINGS_LOCAL)) {
+      try {
+        const local = JSON.parse(readFileSync(CLAUDE_SETTINGS_LOCAL, "utf-8"));
+        const { hooks: _h, statusLine: _s, ...rest } = local;
+        if (Object.keys(rest).length === 0) {
+          unlinkSync(CLAUDE_SETTINGS_LOCAL);
+        } else {
+          writeFileSync(CLAUDE_SETTINGS_LOCAL, JSON.stringify(rest, null, 2));
+        }
+      } catch {}
     }
 
     if (changed) {
