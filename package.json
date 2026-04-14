@@ -2,7 +2,7 @@
   "name": "claude-vscode-bridge",
   "displayName": "Claude Code - VS Code Bridge",
   "description": "Bridge your VS Code selections to Claude CLI in real time. Select code, ask Claude — it sees your selection automatically.",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "publisher": "Daniel-Manea",
   "license": "MIT",
   "repository": {
@@ -122,21 +122,53 @@
           },
           "description": "Choose which segments to show in Claude CLI's status bar",
           "properties": {
-            "model": { "type": "boolean", "description": "Model name (e.g., Opus 4.6)" },
-            "gitBranch": { "type": "boolean", "description": "Current git branch" },
-            "contextBar": { "type": "boolean", "description": "Context window progress bar (green/yellow/red)" },
-            "contextPercentage": { "type": "boolean", "description": "Context window usage %" },
-            "cost": { "type": "boolean", "description": "Session cost in USD" },
-            "linesChanged": { "type": "boolean", "description": "Lines added/removed this session" },
-            "rateLimits": { "type": "boolean", "description": "5-hour and 7-day rate limit usage" },
-            "sessionDuration": { "type": "boolean", "description": "Session wall-clock duration" },
-            "selection": { "type": "boolean", "description": "Current VS Code selection (@file#lines)" }
+            "model": {
+              "type": "boolean",
+              "description": "Model name (e.g., Opus 4.6)"
+            },
+            "gitBranch": {
+              "type": "boolean",
+              "description": "Current git branch"
+            },
+            "contextBar": {
+              "type": "boolean",
+              "description": "Context window progress bar (green/yellow/red)"
+            },
+            "contextPercentage": {
+              "type": "boolean",
+              "description": "Context window usage %"
+            },
+            "cost": {
+              "type": "boolean",
+              "description": "Session cost in USD"
+            },
+            "linesChanged": {
+              "type": "boolean",
+              "description": "Lines added/removed this session"
+            },
+            "rateLimits": {
+              "type": "boolean",
+              "description": "5-hour and 7-day rate limit usage"
+            },
+            "sessionDuration": {
+              "type": "boolean",
+              "description": "Session wall-clock duration"
+            },
+            "selection": {
+              "type": "boolean",
+              "description": "Current VS Code selection (@file#lines)"
+            }
           }
         },
         "claudeBridge.settingsTarget": {
           "type": "string",
           "default": "user",
-          "enum": ["user", "project", "projectLocal", "ask"],
+          "enum": [
+            "user",
+            "project",
+            "projectLocal",
+            "ask"
+          ],
           "enumDescriptions": [
             "~/.claude/settings.json — applies to all projects (recommended)",
             ".claude/settings.json — project only, shared via git with team",
