@@ -2,7 +2,7 @@
   "name": "claude-vscode-bridge",
   "displayName": "Claude Code - VS Code Bridge",
   "description": "Bridges your VS Code selection to Claude CLI in real time",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "publisher": "Daniel-Manea",
   "license": "MIT",
   "repository": {
