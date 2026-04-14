@@ -422,6 +422,106 @@ function removeClaudeSettings(): void {
   }
 }
 
+// --- Sidebar tree views ---
+
+const SEGMENT_LABELS: Record<string, string> = {
+  model: "Model name",
+  gitBranch: "Git branch",
+  contextBar: "Context progress bar",
+  contextPercentage: "Context percentage",
+  cost: "Session cost",
+  linesChanged: "Lines changed",
+  rateLimits: "Rate limits (5h/7d)",
+  sessionDuration: "Session duration",
+  selection: "VS Code selection",
+};
+
+class StatusTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
+  private _onDidChange = new vscode.EventEmitter<void>();
+  readonly onDidChangeTreeData = this._onDidChange.event;
+
+  refresh(): void { this._onDidChange.fire(); }
+
+  getTreeItem(element: vscode.TreeItem): vscode.TreeItem { return element; }
+
+  getChildren(): vscode.TreeItem[] {
+    const cfg = getConfig();
+    const enabled = cfg.get<boolean>("enabled", true);
+    const contextOn = cfg.get<boolean>("contextInjection", true);
+    const statusOn = cfg.get<boolean>("statusLine", true);
+
+    const items: vscode.TreeItem[] = [];
+
+    const bridgeItem = new vscode.TreeItem(
+      `Bridge: ${enabled ? "Active" : "Disabled"}`,
+    );
+    bridgeItem.iconPath = new vscode.ThemeIcon(enabled ? "pass-filled" : "circle-slash");
+    bridgeItem.description = enabled ? "selecting code sends it to Claude" : "paused";
+    items.push(bridgeItem);
+
+    const contextItem = new vscode.TreeItem(
+      `Context Injection: ${contextOn ? "On" : "Off"}`,
+    );
+    contextItem.iconPath = new vscode.ThemeIcon(contextOn ? "check" : "x");
+    items.push(contextItem);
+
+    const statusItem = new vscode.TreeItem(
+      `Status Line: ${statusOn ? "On" : "Off"}`,
+    );
+    statusItem.iconPath = new vscode.ThemeIcon(statusOn ? "check" : "x");
+    items.push(statusItem);
+
+    // Current selection info
+    if (existsSync(SELECTION_FILE)) {
+      try {
+        const data = JSON.parse(readFileSync(SELECTION_FILE, "utf-8"));
+        const selItem = new vscode.TreeItem(
+          `${data.relativePath}:${data.startLine}-${data.endLine}`,
+        );
+        selItem.iconPath = new vscode.ThemeIcon("symbol-reference");
+        selItem.description = `${data.lineCount} lines`;
+        items.push(selItem);
+      } catch {}
+    }
+
+    const target = cfg.get<string>("settingsTarget", "user");
+    const targetItem = new vscode.TreeItem(`Target: ${target}`);
+    targetItem.iconPath = new vscode.ThemeIcon("gear");
+    targetItem.description = target === "user" ? "~/.claude/settings.json" : `.claude/settings.json`;
+    items.push(targetItem);
+
+    return items;
+  }
+}
+
+class SegmentsTreeProvider implements vscode.TreeDataProvider<string> {
+  private _onDidChange = new vscode.EventEmitter<void>();
+  readonly onDidChangeTreeData = this._onDidChange.event;
+
+  refresh(): void { this._onDidChange.fire(); }
+
+  getTreeItem(segmentKey: string): vscode.TreeItem {
+    const cfg = getConfig();
+    const segments = { ...DEFAULT_SEGMENTS, ...cfg.get<Partial<StatusLineSegments>>("statusLineSegments", DEFAULT_SEGMENTS) };
+    const enabled = segments[segmentKey as keyof StatusLineSegments] ?? false;
+    const label = SEGMENT_LABELS[segmentKey] || segmentKey;
+
+    const item = new vscode.TreeItem(label);
+    item.iconPath = new vscode.ThemeIcon(enabled ? "pass-filled" : "circle-large-outline");
+    item.description = enabled ? "visible" : "hidden";
+    item.command = {
+      command: "claude-bridge.toggleSegment",
+      title: "Toggle",
+      arguments: [segmentKey],
+    };
+    return item;
+  }
+
+  getChildren(): string[] {
+    return Object.keys(SEGMENT_LABELS);
+  }
+}
+
 // --- File operations ---
 async function atomicWrite(filePath: string, content: string): Promise<void> {
   const tmp = filePath + ".tmp";
@@ -697,6 +797,14 @@ export function activate(context: vscode.ExtensionContext): void {
   statusBarItem.command = "claude-bridge.preview";
   context.subscriptions.push(statusBarItem);
 
+  // Sidebar tree views
+  const statusTree = new StatusTreeProvider();
+  const segmentsTree = new SegmentsTreeProvider();
+  context.subscriptions.push(
+    vscode.window.registerTreeDataProvider("claude-bridge.status", statusTree),
+    vscode.window.registerTreeDataProvider("claude-bridge.segments", segmentsTree),
+  );
+
   // Auto-setup
   const cfg = getConfig();
   if (cfg.get<boolean>("autoSetup", true)) {
@@ -708,6 +816,7 @@ export function activate(context: vscode.ExtensionContext): void {
   context.subscriptions.push(
     vscode.commands.registerCommand("claude-bridge.clearSelection", () => {
       cleanupFiles();
+      statusTree.refresh();
       vscode.window.showInformationMessage("Claude Bridge: selection cleared.");
     })
   );
@@ -731,16 +840,35 @@ export function activate(context: vscode.ExtensionContext): void {
     })
   );
 
+  context.subscriptions.push(
+    vscode.commands.registerCommand("claude-bridge.toggleSegment", async (segmentKey?: string) => {
+      if (!segmentKey) return;
+      const cfg = getConfig();
+      const segments = { ...DEFAULT_SEGMENTS, ...cfg.get<Partial<StatusLineSegments>>("statusLineSegments", DEFAULT_SEGMENTS) };
+      segments[segmentKey as keyof StatusLineSegments] = !segments[segmentKey as keyof StatusLineSegments];
+      await cfg.update("statusLineSegments", segments, vscode.ConfigurationTarget.Global);
+      segmentsTree.refresh();
+    })
+  );
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand("claude-bridge.openSettings", () => {
+      vscode.commands.executeCommand("workbench.action.openSettings", "claudeBridge");
+    })
+  );
+
   // Selection listeners
   context.subscriptions.push(
     vscode.window.onDidChangeTextEditorSelection((event) => {
       writeSelection(event.textEditor);
+      statusTree.refresh();
     })
   );
 
   context.subscriptions.push(
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       writeSelection(editor);
+      statusTree.refresh();
     })
   );
 

@@ -31,6 +31,27 @@
   ],
   "main": "./out/extension.js",
   "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "claude-bridge",
+          "title": "Claude Bridge",
+          "icon": "$(hubot)"
+        }
+      ]
+    },
+    "views": {
+      "claude-bridge": [
+        {
+          "id": "claude-bridge.status",
+          "name": "Status"
+        },
+        {
+          "id": "claude-bridge.segments",
+          "name": "Status Line Segments"
+        }
+      ]
+    },
     "commands": [
       {
         "command": "claude-bridge.clearSelection",
@@ -51,6 +72,18 @@
         "command": "claude-bridge.removeConfig",
         "title": "Remove Claude Code Configuration",
         "category": "Claude Bridge"
+      },
+      {
+        "command": "claude-bridge.toggleSegment",
+        "title": "Toggle Status Line Segment",
+        "category": "Claude Bridge",
+        "icon": "$(check)"
+      },
+      {
+        "command": "claude-bridge.openSettings",
+        "title": "Open Settings",
+        "category": "Claude Bridge",
+        "icon": "$(gear)"
       }
     ],
     "configuration": {
