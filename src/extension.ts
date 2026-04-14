@@ -1,6 +1,6 @@
 import * as vscode from "vscode";
 import * as fs from "fs/promises";
-import { existsSync, unlinkSync } from "fs";
+import { existsSync, unlinkSync, readFileSync, mkdirSync, writeFileSync } from "fs";
 import * as path from "path";
 import * as os from "os";
 
@@ -9,13 +9,38 @@ const SELECTION_FILE = path.join(HOME, ".claude-vscode-selection.json");
 const CONTEXT_FILE = path.join(HOME, ".claude-vscode-context.json");
 const STATUSLINE_FILE = path.join(HOME, ".claude-vscode-statusline.txt");
 const CONTEXT_SENT_FILE = path.join(HOME, ".claude-vscode-context-sent");
+const CLAUDE_SETTINGS_DIR = path.join(HOME, ".claude");
+const CLAUDE_SETTINGS_LOCAL = path.join(CLAUDE_SETTINGS_DIR, "settings.local.json");
 
-const ALL_FILES = [SELECTION_FILE, CONTEXT_FILE, STATUSLINE_FILE, CONTEXT_SENT_FILE];
+const BRIDGE_FILES = [SELECTION_FILE, CONTEXT_FILE, STATUSLINE_FILE, CONTEXT_SENT_FILE];
+
+// The minimal Claude Code config — just two cat pipes
+const CLAUDE_BRIDGE_CONFIG = {
+  hooks: {
+    UserPromptSubmit: [
+      {
+        matcher: "",
+        hooks: [
+          {
+            type: "command",
+            command:
+              'cat>/dev/null;F="$HOME/.claude-vscode-context.json";S="$HOME/.claude-vscode-context-sent";[ -f "$F" ]||exit 0;NEW=$(stat -f%m "$F" 2>/dev/null||stat -c%Y "$F" 2>/dev/null);OLD=$(cat "$S" 2>/dev/null);[ "$NEW" = "$OLD" ]&&exit 0;cat "$F";echo "$NEW">"$S"',
+          },
+        ],
+      },
+    ],
+  },
+  statusLine: {
+    type: "command" as const,
+    command:
+      'cat>/dev/null;cat ~/.claude-vscode-statusline.txt 2>/dev/null',
+    refreshInterval: 1,
+  },
+};
 
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 let lastSelectionKey = "";
 
-// Pre-allocate buffer for atomic writes — avoids GC pressure
 async function atomicWrite(filePath: string, content: string): Promise<void> {
   const tmp = filePath + ".tmp";
   await fs.writeFile(tmp, content, "utf-8");
@@ -25,7 +50,7 @@ async function atomicWrite(filePath: string, content: string): Promise<void> {
 async function cleanupFiles(): Promise<void> {
   lastSelectionKey = "";
   await Promise.allSettled(
-    ALL_FILES.flatMap((f) => [
+    BRIDGE_FILES.flatMap((f) => [
       fs.unlink(f).catch(() => {}),
       fs.unlink(f + ".tmp").catch(() => {}),
     ])
@@ -34,9 +59,47 @@ async function cleanupFiles(): Promise<void> {
 
 function cleanupFilesSync(): void {
   lastSelectionKey = "";
-  for (const f of ALL_FILES) {
+  for (const f of BRIDGE_FILES) {
     try { if (existsSync(f)) unlinkSync(f); } catch {}
     try { if (existsSync(f + ".tmp")) unlinkSync(f + ".tmp"); } catch {}
+  }
+}
+
+function ensureClaudeSettings(): void {
+  try {
+    if (!existsSync(CLAUDE_SETTINGS_DIR)) {
+      mkdirSync(CLAUDE_SETTINGS_DIR, { recursive: true });
+    }
+
+    let existing: Record<string, unknown> = {};
+    if (existsSync(CLAUDE_SETTINGS_LOCAL)) {
+      existing = JSON.parse(readFileSync(CLAUDE_SETTINGS_LOCAL, "utf-8"));
+    }
+
+    // Check if our config is already there
+    const hasHook = JSON.stringify(existing.hooks) === JSON.stringify(CLAUDE_BRIDGE_CONFIG.hooks);
+    const hasStatusLine = JSON.stringify(existing.statusLine) === JSON.stringify(CLAUDE_BRIDGE_CONFIG.statusLine);
+
+    if (hasHook && hasStatusLine) return;
+
+    // Merge our config in
+    const merged = { ...existing, ...CLAUDE_BRIDGE_CONFIG };
+    writeFileSync(CLAUDE_SETTINGS_LOCAL, JSON.stringify(merged, null, 2));
+
+    vscode.window
+      .showInformationMessage(
+        "Claude VS Code Bridge: settings.local.json created. Restart Claude CLI to activate.",
+        "Open settings.local.json"
+      )
+      .then((choice) => {
+        if (choice) {
+          vscode.workspace.openTextDocument(CLAUDE_SETTINGS_LOCAL).then((doc) => {
+            vscode.window.showTextDocument(doc);
+          });
+        }
+      });
+  } catch {
+    // Don't block activation
   }
 }
 
@@ -60,7 +123,6 @@ function buildContext(
   endChar: number
 ): string {
   if (fullLine !== null) {
-    // Partial single-line selection — show full line with marker
     const marker = " ".repeat(startChar) + "^".repeat(endChar - startChar);
     return (
       `[VS Code Selection] ${relativePath}#L${startLine} (partial)\n` +
@@ -68,7 +130,6 @@ function buildContext(
       `Selected text: "${text}"`
     );
   }
-  // Multi-line or full-line selection
   return (
     `[VS Code Selection] ${relativePath}:${startLine}-${endLine} (${lineCount} lines)\n` +
     `\`\`\`\n${text}\n\`\`\``
@@ -89,12 +150,8 @@ function buildStatusLine(
   const RESET = "\x1b[0m";
 
   const displayPath = truncatePath(relativePath, 30);
-  const lineRef = isPartial
-    ? `#L${startLine}`
-    : `#${startLine}-${endLine}`;
-  const countLabel = isPartial
-    ? "(selection)"
-    : `(${lineCount} lines)`;
+  const lineRef = isPartial ? `#L${startLine}` : `#${startLine}-${endLine}`;
+  const countLabel = isPartial ? "(selection)" : `(${lineCount} lines)`;
 
   const uri = `vscode://file${absolutePath}:${startLine}:1`;
   const linkText = `@${displayPath}${lineRef}`;
@@ -193,6 +250,9 @@ function writeSelection(editor: vscode.TextEditor | undefined): void {
 }
 
 export function activate(context: vscode.ExtensionContext): void {
+  // Write Claude Code settings on first activation
+  ensureClaudeSettings();
+
   context.subscriptions.push(
     vscode.window.onDidChangeTextEditorSelection((event) => {
       writeSelection(event.textEditor);
