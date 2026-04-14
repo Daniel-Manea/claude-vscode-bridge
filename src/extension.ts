@@ -11,6 +11,7 @@ const STATUSLINE_FILE = path.join(HOME, ".claude-vscode-statusline.txt");
 const CONTEXT_SENT_FILE = path.join(HOME, ".claude-vscode-context-sent");
 const CLAUDE_SETTINGS_DIR = path.join(HOME, ".claude");
 const CLAUDE_SETTINGS_LOCAL = path.join(CLAUDE_SETTINGS_DIR, "settings.local.json");
+const CLAUDE_SETTINGS_JSON = path.join(CLAUDE_SETTINGS_DIR, "settings.json");
 
 const BRIDGE_FILES = [SELECTION_FILE, CONTEXT_FILE, STATUSLINE_FILE, CONTEXT_SENT_FILE];
 
@@ -71,57 +72,69 @@ function ensureClaudeSettings(): void {
       mkdirSync(CLAUDE_SETTINGS_DIR, { recursive: true });
     }
 
-    let existing: Record<string, unknown> = {};
+    // --- Hooks → settings.local.json ---
+    let existingLocal: Record<string, unknown> = {};
     if (existsSync(CLAUDE_SETTINGS_LOCAL)) {
-      existing = JSON.parse(readFileSync(CLAUDE_SETTINGS_LOCAL, "utf-8"));
+      existingLocal = JSON.parse(readFileSync(CLAUDE_SETTINGS_LOCAL, "utf-8"));
     }
 
-    // Deep-merge hooks: preserve existing hook events, add ours
-    const existingHooks = (existing.hooks ?? {}) as Record<string, unknown[]>;
+    const existingHooks = (existingLocal.hooks ?? {}) as Record<string, unknown[]>;
     const ourHooks = CLAUDE_BRIDGE_CONFIG.hooks;
     const ourHookCommand = ourHooks.UserPromptSubmit[0].hooks[0].command;
 
-    // Check if our hook is already present
     const existingPromptHooks = (existingHooks.UserPromptSubmit ?? []) as Array<{hooks?: Array<{command?: string}>}>;
     const hasOurHook = existingPromptHooks.some(
       (entry) => entry.hooks?.some((h) => h.command === ourHookCommand)
     );
 
-    // Check if our status line is already present
-    const existingStatusLine = existing.statusLine as {command?: string} | undefined;
+    // --- StatusLine → settings.json (only place Claude reads it) ---
+    let existingMain: Record<string, unknown> = {};
+    if (existsSync(CLAUDE_SETTINGS_JSON)) {
+      existingMain = JSON.parse(readFileSync(CLAUDE_SETTINGS_JSON, "utf-8"));
+    }
+
+    const existingStatusLine = existingMain.statusLine as {command?: string} | undefined;
     const hasStatusLine = existingStatusLine?.command === CLAUDE_BRIDGE_CONFIG.statusLine.command;
 
     if (hasOurHook && hasStatusLine) return;
 
-    // Merge hooks: add our UserPromptSubmit entry alongside existing hook events
-    const mergedHooks = { ...existingHooks };
+    let changed = false;
+
+    // Merge hooks into settings.local.json
     if (!hasOurHook) {
+      const mergedHooks = { ...existingHooks };
       mergedHooks.UserPromptSubmit = [
         ...existingPromptHooks,
         ...ourHooks.UserPromptSubmit,
       ];
+      // Remove statusLine from local if it was there from a previous version
+      const { statusLine: _removed, ...localWithoutStatusLine } = existingLocal;
+      const mergedLocal = { ...localWithoutStatusLine, hooks: mergedHooks };
+      writeFileSync(CLAUDE_SETTINGS_LOCAL, JSON.stringify(mergedLocal, null, 2));
+      changed = true;
     }
 
-    // Merge: keep all existing settings, add/update ours
-    const merged = {
-      ...existing,
-      hooks: mergedHooks,
-      statusLine: CLAUDE_BRIDGE_CONFIG.statusLine,
-    };
-    writeFileSync(CLAUDE_SETTINGS_LOCAL, JSON.stringify(merged, null, 2));
+    // Merge statusLine into settings.json
+    if (!hasStatusLine) {
+      const mergedMain = { ...existingMain, statusLine: CLAUDE_BRIDGE_CONFIG.statusLine };
+      writeFileSync(CLAUDE_SETTINGS_JSON, JSON.stringify(mergedMain, null, 2));
+      changed = true;
+    }
 
-    vscode.window
-      .showInformationMessage(
-        "Claude VS Code Bridge: settings.local.json created. Restart Claude CLI to activate.",
-        "Open settings.local.json"
-      )
-      .then((choice) => {
-        if (choice) {
-          vscode.workspace.openTextDocument(CLAUDE_SETTINGS_LOCAL).then((doc) => {
-            vscode.window.showTextDocument(doc);
-          });
-        }
-      });
+    if (changed) {
+      vscode.window
+        .showInformationMessage(
+          "Claude VS Code Bridge: settings configured. Restart Claude CLI to activate.",
+          "Open settings.json"
+        )
+        .then((choice) => {
+          if (choice) {
+            vscode.workspace.openTextDocument(CLAUDE_SETTINGS_JSON).then((doc) => {
+              vscode.window.showTextDocument(doc);
+            });
+          }
+        });
+    }
   } catch {
     // Don't block activation
   }
