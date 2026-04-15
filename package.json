@@ -2,9 +2,10 @@
   "name": "claude-vscode-bridge",
   "displayName": "Claude Code - VS Code Bridge",
   "description": "Bridge your VS Code selections to Claude CLI in real time. Select code, ask Claude — it sees your selection automatically.",
-  "version": "1.1.2",
+  "version": "2.0.0",
   "publisher": "Daniel-Manea",
   "license": "MIT",
+  "icon": "media/logo.png",
   "repository": {
     "type": "git",
     "url": "https://github.com/Daniel-Manea/claude-vscode-bridge"
@@ -43,12 +44,9 @@
     "views": {
       "claude-bridge": [
         {
-          "id": "claude-bridge.status",
-          "name": "Status"
-        },
-        {
-          "id": "claude-bridge.segments",
-          "name": "Status Line Segments"
+          "id": "claude-bridge.dashboard",
+          "name": "Dashboard",
+          "type": "webview"
         }
       ]
     },
@@ -74,18 +72,31 @@
         "category": "Claude Bridge"
       },
       {
-        "command": "claude-bridge.toggleSegment",
-        "title": "Toggle Status Line Segment",
-        "category": "Claude Bridge",
-        "icon": "$(check)"
-      },
-      {
         "command": "claude-bridge.openSettings",
         "title": "Open Settings",
         "category": "Claude Bridge",
         "icon": "$(gear)"
+      },
+      {
+        "command": "claude-bridge.exportPreset",
+        "title": "Export Preset to JSON",
+        "category": "Claude Bridge"
+      },
+      {
+        "command": "claude-bridge.importPreset",
+        "title": "Import Preset from JSON",
+        "category": "Claude Bridge"
       }
     ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "claude-bridge.openSettings",
+          "when": "view == claude-bridge.dashboard",
+          "group": "navigation"
+        }
+      ]
+    },
     "configuration": {
       "title": "Claude Bridge",
       "properties": {
@@ -128,7 +139,18 @@
           "default": 30,
           "minimum": 10,
           "maximum": 100,
-          "description": "Maximum path length in status line before truncation"
+          "description": "Maximum path length in status line before truncation (only used when path style is 'truncated')"
+        },
+        "claudeBridge.statusLinePathStyle": {
+          "type": "string",
+          "default": "basename",
+          "enum": ["basename", "truncated", "full"],
+          "enumDescriptions": [
+            "Show only the file name (e.g., file.ts)",
+            "Show the relative path, truncated to Status Line Max Path (e.g., src/.../file.ts)",
+            "Show the full relative path (e.g., src/components/file.ts)"
+          ],
+          "description": "How file paths are formatted in the Claude CLI status line and the VS Code status bar"
         },
         "claudeBridge.contextPrefix": {
           "type": "string",
@@ -141,57 +163,55 @@
           "description": "For partial line selections, show the full line with caret markers"
         },
         "claudeBridge.statusLineSegments": {
-          "type": "object",
-          "default": {
-            "model": true,
-            "gitBranch": true,
-            "contextBar": true,
-            "contextPercentage": true,
-            "cost": false,
-            "linesChanged": false,
-            "rateLimits": false,
-            "sessionDuration": false,
-            "selection": true
-          },
-          "description": "Choose which segments to show in Claude CLI's status bar",
-          "properties": {
-            "model": {
-              "type": "boolean",
-              "description": "Model name (e.g., Opus 4.6)"
-            },
-            "gitBranch": {
-              "type": "boolean",
-              "description": "Current git branch"
-            },
-            "contextBar": {
-              "type": "boolean",
-              "description": "Context window progress bar (green/yellow/red)"
-            },
-            "contextPercentage": {
-              "type": "boolean",
-              "description": "Context window usage %"
-            },
-            "cost": {
-              "type": "boolean",
-              "description": "Session cost in USD"
-            },
-            "linesChanged": {
-              "type": "boolean",
-              "description": "Lines added/removed this session"
-            },
-            "rateLimits": {
-              "type": "boolean",
-              "description": "5-hour and 7-day rate limit usage"
-            },
-            "sessionDuration": {
-              "type": "boolean",
-              "description": "Session wall-clock duration"
-            },
-            "selection": {
-              "type": "boolean",
-              "description": "Current VS Code selection (@file#lines)"
+          "type": "array",
+          "default": [
+            { "id": "model", "enabled": true },
+            { "id": "gitBranch", "enabled": true },
+            { "id": "contextBar", "enabled": true },
+            { "id": "contextPercentage", "enabled": true },
+            { "id": "cost", "enabled": false },
+            { "id": "linesChanged", "enabled": false },
+            { "id": "rateLimits", "enabled": false },
+            { "id": "sessionDuration", "enabled": false },
+            { "id": "selection", "enabled": true }
+          ],
+          "description": "Ordered list of status line segments. Edit via the Claude Bridge dashboard to reorder and toggle.",
+          "items": {
+            "type": "object",
+            "required": ["id", "enabled"],
+            "properties": {
+              "id": {
+                "type": "string",
+                "enum": [
+                  "model",
+                  "gitBranch",
+                  "contextBar",
+                  "contextPercentage",
+                  "cost",
+                  "linesChanged",
+                  "rateLimits",
+                  "sessionDuration",
+                  "selection"
+                ]
+              },
+              "enabled": {
+                "type": "boolean"
+              }
             }
           }
+        },
+        "claudeBridge.activePreset": {
+          "type": "string",
+          "default": "default",
+          "enum": ["minimal", "default", "powerUser", "costConscious", "custom"],
+          "enumDescriptions": [
+            "Just the essentials: selection only",
+            "Balanced defaults: model, branch, context, selection",
+            "Everything on: all segments enabled",
+            "Adds cost and rate-limit visibility to the default preset",
+            "Your own configuration (set automatically when you tweak)"
+          ],
+          "description": "Active preset. Picking a preset overwrites segment and behavior settings."
         },
         "claudeBridge.settingsTarget": {
           "type": "string",
@@ -214,9 +234,9 @@
     }
   },
   "scripts": {
-    "compile": "tsc -p ./",
-    "watch": "tsc -watch -p ./",
-    "package": "vsce package"
+    "compile": "tsc -p ./ && tsc -p ./tsconfig.webview.json",
+    "watch": "tsc -watch -p ./ & tsc -watch -p ./tsconfig.webview.json",
+    "package": "npm run compile && vsce package"
   },
   "devDependencies": {
     "@types/vscode": "^1.85.0",

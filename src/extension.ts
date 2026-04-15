@@ -1,8 +1,38 @@
 import * as vscode from "vscode";
 import * as fs from "fs/promises";
-import { existsSync, unlinkSync, readFileSync, mkdirSync, writeFileSync, chmodSync } from "fs";
+import {
+  existsSync,
+  unlinkSync,
+  readFileSync,
+  mkdirSync,
+  writeFileSync,
+  chmodSync,
+} from "fs";
 import * as path from "path";
 import * as os from "os";
+
+import {
+  SegmentEntry,
+  SEGMENT_META,
+  SEGMENT_ORDER,
+  normalizeSegments,
+} from "./segments";
+import {
+  BUILT_IN_PRESETS,
+  PRESET_ORDER,
+  PresetSettings,
+  buildEnvelope,
+  detectActivePreset,
+  parseEnvelope,
+} from "./presets";
+import { ClaudeBridgeSidebarProvider } from "./webview/sidebarProvider";
+import { ClaudeBridgeSettingsPanel } from "./webview/settingsPanel";
+import {
+  ClaudeBridgeSettings,
+  InboundMessage,
+  SelectionInfo,
+  State,
+} from "./webview/messages";
 
 // --- File paths ---
 const HOME = os.homedir();
@@ -21,85 +51,121 @@ const HOOK_COMMAND =
   'cat>/dev/null;F="$HOME/.claude-vscode-context.json";S="$HOME/.claude-vscode-context-sent";[ -f "$F" ]||exit 0;NEW=$(stat -f%m "$F" 2>/dev/null||stat -c%Y "$F" 2>/dev/null);OLD=$(cat "$S" 2>/dev/null);[ "$NEW" = "$OLD" ]&&exit 0;cat "$F";echo "$NEW">"$S"';
 
 const STATUSLINE_SCRIPT_COMMAND = "~/.claude/claude-bridge-statusline.sh";
-
-// --- Types ---
-interface StatusLineSegments {
-  model: boolean;
-  gitBranch: boolean;
-  contextBar: boolean;
-  contextPercentage: boolean;
-  cost: boolean;
-  linesChanged: boolean;
-  rateLimits: boolean;
-  sessionDuration: boolean;
-  selection: boolean;
-}
-
-const DEFAULT_SEGMENTS: StatusLineSegments = {
-  model: true,
-  gitBranch: true,
-  contextBar: true,
-  contextPercentage: true,
-  cost: false,
-  linesChanged: false,
-  rateLimits: false,
-  sessionDuration: false,
-  selection: true,
-};
+const V2_NOTICE_KEY = "claudeBridge.v2NoticeShown";
 
 // --- State ---
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 let lastSelectionKey = "";
 let statusBarItem: vscode.StatusBarItem;
+let extensionPath = "";
+let extensionVersion = "";
+let currentSelection: SelectionInfo | null = null;
+let sidebarProvider: ClaudeBridgeSidebarProvider | undefined;
 
 // --- Config helper ---
-function getConfig() {
+function getConfig(): vscode.WorkspaceConfiguration {
   return vscode.workspace.getConfiguration("claudeBridge");
 }
 
-// --- Status line script generator ---
-function generateStatusLineScript(extensionPath: string): string {
+function readSettings(): ClaudeBridgeSettings {
   const cfg = getConfig();
-  const segments = { ...DEFAULT_SEGMENTS, ...cfg.get<Partial<StatusLineSegments>>("statusLineSegments", DEFAULT_SEGMENTS) };
+  return {
+    enabled: cfg.get<boolean>("enabled", true),
+    contextInjection: cfg.get<boolean>("contextInjection", true),
+    statusLine: cfg.get<boolean>("statusLine", true),
+    autoSetup: cfg.get<boolean>("autoSetup", true),
+    maxLines: cfg.get<number>("maxLines", 500),
+    debounceMs: cfg.get<number>("debounceMs", 30),
+    statusLineMaxPath: cfg.get<number>("statusLineMaxPath", 30),
+    statusLinePathStyle: cfg.get("statusLinePathStyle", "basename") as ClaudeBridgeSettings["statusLinePathStyle"],
+    contextPrefix: cfg.get<string>("contextPrefix", "[VS Code Selection]"),
+    showPartialLineContext: cfg.get<boolean>("showPartialLineContext", true),
+    settingsTarget: cfg.get("settingsTarget", "user") as ClaudeBridgeSettings["settingsTarget"],
+    activePreset: cfg.get<string>("activePreset", "default"),
+  };
+}
 
-  // Read the template shipped with the extension
-  const templatePath = path.join(extensionPath, "media", "statusline-template.sh");
-  let script = readFileSync(templatePath, "utf-8");
+function presetSettingsFrom(settings: ClaudeBridgeSettings): PresetSettings {
+  return {
+    enabled: settings.enabled,
+    contextInjection: settings.contextInjection,
+    statusLine: settings.statusLine,
+    maxLines: settings.maxLines,
+    debounceMs: settings.debounceMs,
+    statusLineMaxPath: settings.statusLineMaxPath,
+    contextPrefix: settings.contextPrefix,
+    showPartialLineContext: settings.showPartialLineContext,
+  };
+}
 
-  // Comment out disabled segments
-  for (const [key, enabled] of Object.entries(segments)) {
-    const beginTag = `#SEGMENT:${key}:BEGIN`;
-    const endTag = `#SEGMENT:${key}:END`;
-    const beginIdx = script.indexOf(beginTag);
-    const endIdx = script.indexOf(endTag);
+function buildState(): State {
+  const settings = readSettings();
+  const segments = normalizeSegments(getConfig().get("statusLineSegments"));
+  return {
+    version: extensionVersion,
+    settings,
+    segments,
+    segmentMeta: SEGMENT_ORDER.map((id) => SEGMENT_META[id]),
+    presets: PRESET_ORDER.map((id) => {
+      const p = BUILT_IN_PRESETS[id];
+      return { id: p.id, label: p.label, description: p.description };
+    }),
+    selection: currentSelection,
+  };
+}
 
-    if (beginIdx === -1 || endIdx === -1) continue;
+// --- Status line script generator ---
+function generateStatusLineScript(extPath: string): string {
+  const cfg = getConfig();
+  const segments = normalizeSegments(cfg.get("statusLineSegments"));
+  const contextPct =
+    segments.find((s) => s.id === "contextPercentage")?.enabled ?? true;
 
-    if (!enabled) {
-      // Comment out the entire segment block
-      const before = script.substring(0, beginIdx);
-      const block = script.substring(beginIdx, endIdx + endTag.length);
-      const after = script.substring(endIdx + endTag.length);
-      const commented = block.split("\n").map((line) =>
-        line.startsWith("#") ? line : `#${line}`
-      ).join("\n");
-      script = before + commented + after;
+  const templatePath = path.join(extPath, "media", "statusline-template.sh");
+  const template = readFileSync(templatePath, "utf-8");
+
+  // Split out preamble / reorderable blocks / postamble.
+  const blockRe = /#SEGMENT:(\w+):BEGIN[\s\S]*?#SEGMENT:\1:END/g;
+  const blocks: Record<string, string> = {};
+  let firstStart = -1;
+  let lastEnd = -1;
+  let m: RegExpExecArray | null;
+  while ((m = blockRe.exec(template)) !== null) {
+    blocks[m[1]] = m[0];
+    if (firstStart === -1) firstStart = m.index;
+    lastEnd = m.index + m[0].length;
+  }
+  const preamble = firstStart === -1 ? template : template.substring(0, firstStart);
+  const postamble = lastEnd === -1 ? "" : template.substring(lastEnd);
+
+  // Re-emit blocks in user's order, commenting out disabled ones.
+  const assembled: string[] = [preamble.trimEnd()];
+  for (const entry of segments) {
+    const block = blocks[entry.id];
+    if (!block) continue;
+    if (entry.enabled) {
+      assembled.push(block);
+    } else {
+      const commented = block
+        .split("\n")
+        .map((line) => (line.startsWith("#") ? line : `#${line}`))
+        .join("\n");
+      assembled.push(commented);
     }
   }
+  assembled.push(postamble.trimStart());
+  let script = assembled.join("\n\n");
 
-  // Handle contextPercentage toggle within contextBar
-  if (segments.contextBar && !segments.contextPercentage) {
-    // Swap: comment out YES block, uncomment NO block
+  // Handle contextPercentage toggle within the contextBar block.
+  if (!contextPct) {
     script = script.replace(
       /#SEGMENT:contextPercentage:YES\n(.*)\n#SEGMENT:contextPercentage:NO\n#(.*)\n#SEGMENT:contextPercentage:ENDALT/,
-      "#SEGMENT:contextPercentage:YES\n#$1\n#SEGMENT:contextPercentage:NO\n$2\n#SEGMENT:contextPercentage:ENDALT"
+      "#SEGMENT:contextPercentage:YES\n#$1\n#SEGMENT:contextPercentage:NO\n$2\n#SEGMENT:contextPercentage:ENDALT",
     );
   }
 
   return script;
 }
-
-let extensionPath = "";
 
 function writeStatusLineScript(): void {
   try {
@@ -203,9 +269,11 @@ function mergeConfigIntoFile(targetPath: string, silent: boolean): void {
     // Merge hooks
     if (cfg.get<boolean>("contextInjection", true)) {
       const existingHooks = (existing.hooks ?? {}) as Record<string, unknown[]>;
-      const existingPromptHooks = (existingHooks.UserPromptSubmit ?? []) as Array<{hooks?: Array<{command?: string}>}>;
-      const hasOurHook = existingPromptHooks.some(
-        (entry) => entry.hooks?.some((h) => h.command === HOOK_COMMAND)
+      const existingPromptHooks = (existingHooks.UserPromptSubmit ?? []) as Array<{
+        hooks?: Array<{ command?: string }>;
+      }>;
+      const hasOurHook = existingPromptHooks.some((entry) =>
+        entry.hooks?.some((h) => h.command === HOOK_COMMAND),
       );
       if (!hasOurHook) {
         const mergedHooks = { ...existingHooks };
@@ -220,7 +288,7 @@ function mergeConfigIntoFile(targetPath: string, silent: boolean): void {
 
     // Merge statusLine
     if (cfg.get<boolean>("statusLine", true)) {
-      const existingStatusLine = existing.statusLine as {command?: string} | undefined;
+      const existingStatusLine = existing.statusLine as { command?: string } | undefined;
       if (existingStatusLine?.command !== STATUSLINE_SCRIPT_COMMAND) {
         existing.statusLine = {
           type: "command",
@@ -248,7 +316,9 @@ function mergeConfigIntoFile(targetPath: string, silent: boolean): void {
         } else {
           writeFileSync(CLAUDE_SETTINGS_LOCAL, JSON.stringify(rest, null, 2));
         }
-      } catch {}
+      } catch {
+        // ignore
+      }
     }
 
     if (!silent) {
@@ -256,17 +326,19 @@ function mergeConfigIntoFile(targetPath: string, silent: boolean): void {
         vscode.window
           .showInformationMessage(
             `Claude Bridge: ${path.basename(targetPath)} updated. Restart Claude CLI to activate.`,
-            "Open file"
+            "Open file",
           )
           .then((choice) => {
             if (choice) {
-              vscode.workspace.openTextDocument(targetPath).then((doc) =>
-                vscode.window.showTextDocument(doc)
-              );
+              vscode.workspace
+                .openTextDocument(targetPath)
+                .then((doc) => vscode.window.showTextDocument(doc));
             }
           });
       } else {
-        vscode.window.showInformationMessage("Claude Bridge: configuration already up to date.");
+        vscode.window.showInformationMessage(
+          "Claude Bridge: configuration already up to date.",
+        );
       }
     }
   } catch (err) {
@@ -284,11 +356,13 @@ function removeClaudeSettings(): void {
       const existing = JSON.parse(readFileSync(settingsPath, "utf-8"));
       let changed = false;
 
-      // Remove our hook
       const hooks = (existing.hooks ?? {}) as Record<string, unknown[]>;
       if (hooks.UserPromptSubmit) {
-        const filtered = (hooks.UserPromptSubmit as Array<{hooks?: Array<{command?: string}>}>)
-          .filter((entry) => !entry.hooks?.some((h) => h.command === HOOK_COMMAND));
+        const filtered = (hooks.UserPromptSubmit as Array<{
+          hooks?: Array<{ command?: string }>;
+        }>).filter(
+          (entry) => !entry.hooks?.some((h) => h.command === HOOK_COMMAND),
+        );
         if (filtered.length === 0) {
           delete hooks.UserPromptSubmit;
         } else {
@@ -302,9 +376,11 @@ function removeClaudeSettings(): void {
         changed = true;
       }
 
-      // Remove our statusLine
-      const sl = existing.statusLine as {command?: string} | undefined;
-      if (sl?.command === STATUSLINE_SCRIPT_COMMAND || sl?.command?.includes("claude-vscode-statusline")) {
+      const sl = existing.statusLine as { command?: string } | undefined;
+      if (
+        sl?.command === STATUSLINE_SCRIPT_COMMAND ||
+        sl?.command?.includes("claude-vscode-statusline")
+      ) {
         delete existing.statusLine;
         changed = true;
       }
@@ -314,7 +390,6 @@ function removeClaudeSettings(): void {
       }
     }
 
-    // Remove the script
     if (existsSync(STATUSLINE_SCRIPT)) {
       unlinkSync(STATUSLINE_SCRIPT);
     }
@@ -325,104 +400,171 @@ function removeClaudeSettings(): void {
   }
 }
 
-// --- Sidebar tree views ---
+// --- Preset operations ---
+async function applyPreset(presetId: string): Promise<void> {
+  const preset = BUILT_IN_PRESETS[presetId];
+  if (!preset) return;
+  const cfg = getConfig();
+  for (const [key, value] of Object.entries(preset.settings)) {
+    await cfg.update(key, value, vscode.ConfigurationTarget.Global);
+  }
+  await cfg.update(
+    "statusLineSegments",
+    preset.segments,
+    vscode.ConfigurationTarget.Global,
+  );
+  await cfg.update("activePreset", preset.id, vscode.ConfigurationTarget.Global);
+}
 
-const SEGMENT_LABELS: Record<string, string> = {
-  model: "Model name",
-  gitBranch: "Git branch",
-  contextBar: "Context progress bar",
-  contextPercentage: "Context percentage",
-  cost: "Session cost",
-  linesChanged: "Lines changed",
-  rateLimits: "Rate limits (5h/7d)",
-  sessionDuration: "Session duration",
-  selection: "VS Code selection",
-};
-
-class StatusTreeProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
-  private _onDidChange = new vscode.EventEmitter<void>();
-  readonly onDidChangeTreeData = this._onDidChange.event;
-
-  refresh(): void { this._onDidChange.fire(); }
-
-  getTreeItem(element: vscode.TreeItem): vscode.TreeItem { return element; }
-
-  getChildren(): vscode.TreeItem[] {
-    const cfg = getConfig();
-    const enabled = cfg.get<boolean>("enabled", true);
-    const contextOn = cfg.get<boolean>("contextInjection", true);
-    const statusOn = cfg.get<boolean>("statusLine", true);
-
-    const items: vscode.TreeItem[] = [];
-
-    const bridgeItem = new vscode.TreeItem(
-      `Bridge: ${enabled ? "Active" : "Disabled"}`,
+async function syncActivePreset(): Promise<void> {
+  const settings = readSettings();
+  const segments = normalizeSegments(getConfig().get("statusLineSegments"));
+  const detected = detectActivePreset(presetSettingsFrom(settings), segments);
+  if (detected !== settings.activePreset) {
+    await getConfig().update(
+      "activePreset",
+      detected,
+      vscode.ConfigurationTarget.Global,
     );
-    bridgeItem.iconPath = new vscode.ThemeIcon(enabled ? "pass-filled" : "circle-slash");
-    bridgeItem.description = enabled ? "selecting code sends it to Claude" : "paused";
-    items.push(bridgeItem);
-
-    const contextItem = new vscode.TreeItem(
-      `Context Injection: ${contextOn ? "On" : "Off"}`,
-    );
-    contextItem.iconPath = new vscode.ThemeIcon(contextOn ? "check" : "x");
-    items.push(contextItem);
-
-    const statusItem = new vscode.TreeItem(
-      `Status Line: ${statusOn ? "On" : "Off"}`,
-    );
-    statusItem.iconPath = new vscode.ThemeIcon(statusOn ? "check" : "x");
-    items.push(statusItem);
-
-    // Current selection info
-    if (existsSync(SELECTION_FILE)) {
-      try {
-        const data = JSON.parse(readFileSync(SELECTION_FILE, "utf-8"));
-        const selItem = new vscode.TreeItem(
-          `${data.relativePath}:${data.startLine}-${data.endLine}`,
-        );
-        selItem.iconPath = new vscode.ThemeIcon("symbol-reference");
-        selItem.description = `${data.lineCount} lines`;
-        items.push(selItem);
-      } catch {}
-    }
-
-    const target = cfg.get<string>("settingsTarget", "user");
-    const targetItem = new vscode.TreeItem(`Target: ${target}`);
-    targetItem.iconPath = new vscode.ThemeIcon("gear");
-    targetItem.description = target === "user" ? "~/.claude/settings.json" : `.claude/settings.json`;
-    items.push(targetItem);
-
-    return items;
   }
 }
 
-class SegmentsTreeProvider implements vscode.TreeDataProvider<string> {
-  private _onDidChange = new vscode.EventEmitter<void>();
-  readonly onDidChangeTreeData = this._onDidChange.event;
+async function exportCurrentPreset(): Promise<void> {
+  const settings = readSettings();
+  const segments = normalizeSegments(getConfig().get("statusLineSegments"));
+  const presetMeta = BUILT_IN_PRESETS[settings.activePreset];
+  const label = presetMeta?.label ?? "Claude Bridge custom";
+  const envelope = buildEnvelope(
+    label,
+    presetSettingsFrom(settings),
+    segments,
+    presetMeta?.description,
+  );
 
-  refresh(): void { this._onDidChange.fire(); }
+  const uri = await vscode.window.showSaveDialog({
+    saveLabel: "Export preset",
+    filters: { "JSON files": ["json"] },
+    defaultUri: vscode.Uri.file(
+      path.join(os.homedir(), "claude-bridge-preset.json"),
+    ),
+  });
+  if (!uri) return;
 
-  getTreeItem(segmentKey: string): vscode.TreeItem {
+  await vscode.workspace.fs.writeFile(
+    uri,
+    Buffer.from(JSON.stringify(envelope, null, 2), "utf-8"),
+  );
+  vscode.window.showInformationMessage(
+    `Claude Bridge: preset exported to ${path.basename(uri.fsPath)}.`,
+  );
+}
+
+async function importPresetFromFile(): Promise<void> {
+  const uris = await vscode.window.showOpenDialog({
+    canSelectMany: false,
+    canSelectFiles: true,
+    canSelectFolders: false,
+    filters: { "JSON files": ["json"] },
+    openLabel: "Import preset",
+  });
+  const uri = uris?.[0];
+  if (!uri) return;
+  try {
+    const bytes = await vscode.workspace.fs.readFile(uri);
+    const json = Buffer.from(bytes).toString("utf-8");
+    const envelope = parseEnvelope(json);
     const cfg = getConfig();
-    const segments = { ...DEFAULT_SEGMENTS, ...cfg.get<Partial<StatusLineSegments>>("statusLineSegments", DEFAULT_SEGMENTS) };
-    const enabled = segments[segmentKey as keyof StatusLineSegments] ?? false;
-    const label = SEGMENT_LABELS[segmentKey] || segmentKey;
-
-    const item = new vscode.TreeItem(label);
-    item.iconPath = new vscode.ThemeIcon(enabled ? "pass-filled" : "circle-large-outline");
-    item.description = enabled ? "visible" : "hidden";
-    item.command = {
-      command: "claude-bridge.toggleSegment",
-      title: "Toggle",
-      arguments: [segmentKey],
-    };
-    return item;
+    for (const [key, value] of Object.entries(envelope.settings)) {
+      if (value === undefined) continue;
+      await cfg.update(key, value, vscode.ConfigurationTarget.Global);
+    }
+    await cfg.update(
+      "statusLineSegments",
+      envelope.segments,
+      vscode.ConfigurationTarget.Global,
+    );
+    await cfg.update("activePreset", "custom", vscode.ConfigurationTarget.Global);
+    vscode.window.showInformationMessage(
+      `Claude Bridge: imported preset${envelope.label ? ` "${envelope.label}"` : ""}.`,
+    );
+  } catch (err) {
+    vscode.window.showErrorMessage(
+      `Claude Bridge: import failed — ${(err as Error).message}`,
+    );
   }
+}
 
-  getChildren(): string[] {
-    return Object.keys(SEGMENT_LABELS);
+// --- Webview message handling ---
+let settingsPanel: ClaudeBridgeSettingsPanel | undefined;
+let logChannel: vscode.OutputChannel | undefined;
+
+function log(...parts: unknown[]): void {
+  if (!logChannel) return;
+  const stamp = new Date().toISOString().split("T")[1]?.slice(0, 12) ?? "";
+  const line = parts
+    .map((p) => (typeof p === "string" ? p : JSON.stringify(p)))
+    .join(" ");
+  logChannel.appendLine(`[${stamp}] ${line}`);
+}
+
+function broadcastState(): void {
+  const state = buildState();
+  sidebarProvider?.postState(state);
+  settingsPanel?.postState(state);
+}
+
+async function handleWebviewMessage(msg: InboundMessage): Promise<void> {
+  log("recv", msg);
+  const cfg = getConfig();
+  try {
+    switch (msg.type) {
+      case "ready":
+        broadcastState();
+        return;
+      case "setSetting":
+        await cfg.update(msg.key, msg.value, vscode.ConfigurationTarget.Global);
+        await syncActivePreset();
+        return;
+      case "setSegments":
+        await cfg.update(
+          "statusLineSegments",
+          normalizeSegments(msg.segments),
+          vscode.ConfigurationTarget.Global,
+        );
+        await syncActivePreset();
+        return;
+      case "applyPreset":
+        await applyPreset(msg.presetId);
+        return;
+      case "exportPreset":
+        await exportCurrentPreset();
+        return;
+      case "importPreset":
+        await importPresetFromFile();
+        return;
+      case "openSettings":
+        openSettingsPanel();
+        return;
+      case "runSetup":
+        await vscode.commands.executeCommand("claude-bridge.setup");
+        return;
+      case "removeConfig":
+        await vscode.commands.executeCommand("claude-bridge.removeConfig");
+        return;
+    }
+  } catch (err) {
+    log("ERROR handling", (msg as { type?: string }).type, "-", (err as Error).message);
   }
+}
+
+function openSettingsPanel(): void {
+  settingsPanel = ClaudeBridgeSettingsPanel.showOrReveal(
+    vscode.Uri.file(extensionPath),
+    buildState,
+    handleWebviewMessage,
+  );
+  // Post state immediately on open (webview also posts "ready" but this avoids flashing).
+  settingsPanel.postState(buildState());
 }
 
 // --- File operations ---
@@ -438,16 +580,26 @@ async function cleanupFiles(): Promise<void> {
     BRIDGE_FILES.flatMap((f) => [
       fs.unlink(f).catch(() => {}),
       fs.unlink(f + ".tmp").catch(() => {}),
-    ])
+    ]),
   );
   updateStatusBarItem(null);
+  currentSelection = null;
+  broadcastState();
 }
 
 function cleanupFilesSync(): void {
   lastSelectionKey = "";
   for (const f of BRIDGE_FILES) {
-    try { if (existsSync(f)) unlinkSync(f); } catch {}
-    try { if (existsSync(f + ".tmp")) unlinkSync(f + ".tmp"); } catch {}
+    try {
+      if (existsSync(f)) unlinkSync(f);
+    } catch {
+      // ignore
+    }
+    try {
+      if (existsSync(f + ".tmp")) unlinkSync(f + ".tmp");
+    } catch {
+      // ignore
+    }
   }
 }
 
@@ -481,7 +633,7 @@ function buildContext(
   text: string,
   fullLine: string | null,
   startChar: number,
-  endChar: number
+  endChar: number,
 ): string {
   const cfg = getConfig();
   const prefix = cfg.get<string>("contextPrefix", "[VS Code Selection]");
@@ -501,31 +653,46 @@ function buildContext(
   );
 }
 
+function formatPath(relativePath: string, style: string, maxLen: number): string {
+  switch (style) {
+    case "basename":
+      return path.basename(relativePath);
+    case "full":
+      return relativePath;
+    case "truncated":
+    default:
+      return truncatePath(relativePath, maxLen);
+  }
+}
+
 function buildSelectionStatusLine(
   relativePath: string,
   absolutePath: string,
   startLine: number,
   endLine: number,
   lineCount: number,
-  isPartial: boolean
+  isPartial: boolean,
 ): string {
   const cfg = getConfig();
   const maxPath = cfg.get<number>("statusLineMaxPath", 30);
+  const pathStyle = cfg.get<string>("statusLinePathStyle", "basename");
+  const prefix = cfg.get<string>("contextPrefix", "[VS Code Selection]").trim();
 
   const DIM = "\x1b[2m";
   const CYAN = "\x1b[36m";
   const BOLD = "\x1b[1m";
   const RESET = "\x1b[0m";
 
-  const displayPath = truncatePath(relativePath, maxPath);
+  const displayPath = formatPath(relativePath, pathStyle, maxPath);
   const lineRef = isPartial ? `#L${startLine}` : `#${startLine}-${endLine}`;
   const countLabel = isPartial ? "(selection)" : `(${lineCount} lines)`;
 
   const uri = `vscode://file${absolutePath}:${startLine}:1`;
-  const linkText = `@${displayPath}${lineRef}`;
+  const linkText = `${displayPath}${lineRef}`;
   const link = `\x1b]8;;${uri}\x07${linkText}\x1b]8;;\x07`;
 
-  return `${CYAN}${BOLD}${link}${RESET} ${DIM}${countLabel}${RESET}`;
+  const prefixed = prefix ? `${prefix} ` : "";
+  return `${DIM}${prefixed}${RESET}${CYAN}${BOLD}${link}${RESET} ${DIM}${countLabel}${RESET}`;
 }
 
 // --- Preview ---
@@ -553,17 +720,26 @@ function previewSelection(): void {
   const endLine = selection.end.line + 1;
   const lineCount = endLine - startLine + 1;
   const isSingleLine = selection.start.line === selection.end.line;
-  const fullLineText = isSingleLine ? editor.document.lineAt(selection.start.line).text : null;
-  const isPartial = isSingleLine && fullLineText !== null && text !== fullLineText.trim();
+  const fullLineText = isSingleLine
+    ? editor.document.lineAt(selection.start.line).text
+    : null;
+  const isPartial =
+    isSingleLine && fullLineText !== null && text !== fullLineText.trim();
 
   const context = buildContext(
-    relativePath, startLine, endLine, lineCount,
-    text, isPartial ? fullLineText : null,
-    selection.start.character, selection.end.character
+    relativePath,
+    startLine,
+    endLine,
+    lineCount,
+    text,
+    isPartial ? fullLineText : null,
+    selection.start.character,
+    selection.end.character,
   );
 
   const maxPath = getConfig().get<number>("statusLineMaxPath", 30);
-  const displayPath = truncatePath(relativePath, maxPath);
+  const pathStyle = getConfig().get<string>("statusLinePathStyle", "basename");
+  const displayPath = formatPath(relativePath, pathStyle, maxPath);
   const lineRef = isPartial ? `#L${startLine}` : `#${startLine}-${endLine}`;
 
   const panel = vscode.window.createOutputChannel("Claude Bridge Preview");
@@ -573,12 +749,14 @@ function previewSelection(): void {
   panel.appendLine(context);
   panel.appendLine("");
   panel.appendLine("=== Status line segment (VS Code selection) ===");
-  panel.appendLine(`@${displayPath}${lineRef} ${isPartial ? "(selection)" : `(${lineCount} lines)`}`);
+  panel.appendLine(
+    `@${displayPath}${lineRef} ${isPartial ? "(selection)" : `(${lineCount} lines)`}`,
+  );
   panel.appendLine("");
-  panel.appendLine("=== Active status line segments ===");
-  const segments = { ...DEFAULT_SEGMENTS, ...getConfig().get<Partial<StatusLineSegments>>("statusLineSegments", DEFAULT_SEGMENTS) };
-  for (const [key, enabled] of Object.entries(segments)) {
-    panel.appendLine(`  ${enabled ? "[x]" : "[ ]"} ${key}`);
+  panel.appendLine("=== Active status line segments (in order) ===");
+  const segments = normalizeSegments(getConfig().get("statusLineSegments"));
+  for (const s of segments) {
+    panel.appendLine(`  ${s.enabled ? "[x]" : "[ ]"} ${s.id}`);
   }
   panel.show();
 }
@@ -623,70 +801,103 @@ function writeSelection(editor: vscode.TextEditor | undefined): void {
       const endLine = selection.end.line + 1;
       let lineCount = endLine - startLine + 1;
 
-      // Enforce max lines
       const maxLines = cfg.get<number>("maxLines", 500);
       if (lineCount > maxLines) {
         const lines = text.split("\n");
-        text = lines.slice(0, maxLines).join("\n") + `\n... (truncated, ${lineCount - maxLines} more lines)`;
+        text =
+          lines.slice(0, maxLines).join("\n") +
+          `\n... (truncated, ${lineCount - maxLines} more lines)`;
         lineCount = maxLines;
       }
 
-      // Deduplicate
       const key = `${absolutePath}:${selection.start.line}:${selection.start.character}-${selection.end.line}:${selection.end.character}`;
       if (key === lastSelectionKey) return;
       lastSelectionKey = key;
 
-      // Detect partial single-line selection
       const isSingleLine = selection.start.line === selection.end.line;
-      const fullLineText = isSingleLine ? editor.document.lineAt(selection.start.line).text : null;
-      const isPartial = isSingleLine && fullLineText !== null && text !== fullLineText.trim();
+      const fullLineText = isSingleLine
+        ? editor.document.lineAt(selection.start.line).text
+        : null;
+      const isPartial =
+        isSingleLine && fullLineText !== null && text !== fullLineText.trim();
 
       const writes: Promise<void>[] = [];
 
-      // Raw selection data
-      writes.push(atomicWrite(SELECTION_FILE, JSON.stringify({
-        file: absolutePath,
-        relativePath,
-        startLine,
-        endLine,
-        lineCount,
-        text,
-        isPartial,
-        fullLine: fullLineText,
-        startChar: selection.start.character,
-        endChar: selection.end.character,
-        timestamp: Date.now(),
-      })));
+      writes.push(
+        atomicWrite(
+          SELECTION_FILE,
+          JSON.stringify({
+            file: absolutePath,
+            relativePath,
+            startLine,
+            endLine,
+            lineCount,
+            text,
+            isPartial,
+            fullLine: fullLineText,
+            startChar: selection.start.character,
+            endChar: selection.end.character,
+            timestamp: Date.now(),
+          }),
+        ),
+      );
 
-      // Context file
       if (cfg.get<boolean>("contextInjection", true)) {
         const contextStr = buildContext(
-          relativePath, startLine, endLine, lineCount,
-          text, isPartial ? fullLineText : null,
-          selection.start.character, selection.end.character
+          relativePath,
+          startLine,
+          endLine,
+          lineCount,
+          text,
+          isPartial ? fullLineText : null,
+          selection.start.character,
+          selection.end.character,
         );
-        writes.push(atomicWrite(CONTEXT_FILE, JSON.stringify({
-          hookSpecificOutput: {
-            hookEventName: "UserPromptSubmit",
-            additionalContext: contextStr,
-          },
-        })));
+        writes.push(
+          atomicWrite(
+            CONTEXT_FILE,
+            JSON.stringify({
+              hookSpecificOutput: {
+                hookEventName: "UserPromptSubmit",
+                additionalContext: contextStr,
+              },
+            }),
+          ),
+        );
       }
 
-      // Status line selection segment
       if (cfg.get<boolean>("statusLine", true)) {
-        writes.push(atomicWrite(STATUSLINE_FILE, buildSelectionStatusLine(
-          relativePath, absolutePath, startLine, endLine, lineCount, isPartial
-        )));
+        writes.push(
+          atomicWrite(
+            STATUSLINE_FILE,
+            buildSelectionStatusLine(
+              relativePath,
+              absolutePath,
+              startLine,
+              endLine,
+              lineCount,
+              isPartial,
+            ),
+          ),
+        );
       }
 
       await Promise.all(writes);
 
-      // Update VS Code status bar
       const maxPath = cfg.get<number>("statusLineMaxPath", 30);
-      const displayPath = truncatePath(relativePath, maxPath);
+      const pathStyle = cfg.get<string>("statusLinePathStyle", "basename");
+      const displayPath = formatPath(relativePath, pathStyle, maxPath);
       const lineRef = isPartial ? `#L${startLine}` : `#${startLine}-${endLine}`;
       updateStatusBarItem({ path: displayPath, lines: lineRef });
+
+      currentSelection = {
+        relativePath,
+        startLine,
+        endLine,
+        lineCount,
+        isPartial,
+      };
+      broadcastState();
     } catch {
       // Silently fail
     }
@@ -696,18 +907,29 @@ function writeSelection(editor: vscode.TextEditor | undefined): void {
 // --- Activation ---
 export function activate(context: vscode.ExtensionContext): void {
   extensionPath = context.extensionPath;
+  extensionVersion = (context.extension.packageJSON as { version?: string }).version ?? "0.0.0";
+
+  // Diagnostic log channel — open via "Output: Show Output Channel..." → "Claude Bridge"
+  logChannel = vscode.window.createOutputChannel("Claude Bridge");
+  context.subscriptions.push(logChannel);
+  log("activate v" + extensionVersion);
 
   // VS Code status bar item
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
   statusBarItem.command = "claude-bridge.preview";
   context.subscriptions.push(statusBarItem);
 
-  // Sidebar tree views
-  const statusTree = new StatusTreeProvider();
-  const segmentsTree = new SegmentsTreeProvider();
+  // Sidebar webview view
+  sidebarProvider = new ClaudeBridgeSidebarProvider(
+    context.extensionUri,
+    buildState,
+    handleWebviewMessage,
+  );
   context.subscriptions.push(
-    vscode.window.registerTreeDataProvider("claude-bridge.status", statusTree),
-    vscode.window.registerTreeDataProvider("claude-bridge.segments", segmentsTree),
+    vscode.window.registerWebviewViewProvider(
+      ClaudeBridgeSidebarProvider.viewType,
+      sidebarProvider,
+    ),
   );
 
   // Auto-setup
@@ -717,77 +939,70 @@ export function activate(context: vscode.ExtensionContext): void {
     mergeConfigIntoFile(targetPath, true);
   }
 
+  // One-time v2 notice
+  if (!context.globalState.get<boolean>(V2_NOTICE_KEY)) {
+    void context.globalState.update(V2_NOTICE_KEY, true);
+    vscode.window
+      .showInformationMessage(
+        "Claude Bridge 2.0: new settings UI + reorderable status line segments. Your previous segment preferences were reset.",
+        "Open settings",
+        "Dismiss",
+      )
+      .then((choice) => {
+        if (choice === "Open settings") {
+          void vscode.commands.executeCommand("claude-bridge.openSettings");
+        }
+      });
+  }
+
   // Commands
   context.subscriptions.push(
     vscode.commands.registerCommand("claude-bridge.clearSelection", () => {
-      cleanupFiles();
-      statusTree.refresh();
+      void cleanupFiles();
       vscode.window.showInformationMessage("Claude Bridge: selection cleared.");
-    })
-  );
-
-  context.subscriptions.push(
+    }),
     vscode.commands.registerCommand("claude-bridge.setup", async () => {
       const targetPath = await resolveSettingsTarget();
       mergeConfigIntoFile(targetPath, false);
-    })
-  );
-
-  context.subscriptions.push(
+    }),
     vscode.commands.registerCommand("claude-bridge.preview", () => {
       previewSelection();
-    })
-  );
-
-  context.subscriptions.push(
+    }),
     vscode.commands.registerCommand("claude-bridge.removeConfig", () => {
       removeClaudeSettings();
-    })
-  );
-
-  context.subscriptions.push(
-    vscode.commands.registerCommand("claude-bridge.toggleSegment", async (segmentKey?: string) => {
-      if (!segmentKey) return;
-      const cfg = getConfig();
-      const segments = { ...DEFAULT_SEGMENTS, ...cfg.get<Partial<StatusLineSegments>>("statusLineSegments", DEFAULT_SEGMENTS) };
-      segments[segmentKey as keyof StatusLineSegments] = !segments[segmentKey as keyof StatusLineSegments];
-      await cfg.update("statusLineSegments", segments, vscode.ConfigurationTarget.Global);
-      segmentsTree.refresh();
-    })
-  );
-
-  context.subscriptions.push(
+    }),
     vscode.commands.registerCommand("claude-bridge.openSettings", () => {
-      vscode.commands.executeCommand("workbench.action.openSettings", "claudeBridge");
-    })
+      openSettingsPanel();
+    }),
+    vscode.commands.registerCommand("claude-bridge.exportPreset", () => {
+      void exportCurrentPreset();
+    }),
+    vscode.commands.registerCommand("claude-bridge.importPreset", () => {
+      void importPresetFromFile();
+    }),
   );
 
   // Selection listeners
   context.subscriptions.push(
     vscode.window.onDidChangeTextEditorSelection((event) => {
       writeSelection(event.textEditor);
-      statusTree.refresh();
-    })
-  );
-
-  context.subscriptions.push(
+    }),
     vscode.window.onDidChangeActiveTextEditor((editor) => {
       writeSelection(editor);
-      statusTree.refresh();
-    })
+    }),
   );
 
-  // Regenerate script when settings change
+  // React to config changes
   context.subscriptions.push(
     vscode.workspace.onDidChangeConfiguration((event) => {
-      if (event.affectsConfiguration("claudeBridge")) {
-        writeStatusLineScript();
-        const newCfg = getConfig();
-        if (!newCfg.get<boolean>("enabled", true)) {
-          cleanupFiles();
-        }
+      if (!event.affectsConfiguration("claudeBridge")) return;
+      writeStatusLineScript();
+      const newCfg = getConfig();
+      if (!newCfg.get<boolean>("enabled", true)) {
+        void cleanupFiles();
       }
-    })
+      broadcastState();
+    }),
   );
 
   // Cleanup

@@ -1,0 +1,337 @@
+/* Claude Bridge full settings panel. */
+
+:root {
+  --cb-spark: #d97757;
+  --cb-accent: #4fc3f7;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+  background: var(--vscode-editor-background);
+}
+
+.container {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 24px 32px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+/* ---- Header ---- */
+.app-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+}
+.logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08), 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+.title-block {
+  display: flex;
+  flex-direction: column;
+}
+.title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+}
+.version {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  letter-spacing: 0.4px;
+}
+
+/* ---- Preview ---- */
+.preview-block h2,
+.group h2 {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--vscode-descriptionForeground);
+}
+.preview-frame {
+  background: var(--vscode-terminal-background, #1e1e1e);
+  color: var(--vscode-terminal-foreground, #cccccc);
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+  border-radius: 4px;
+  padding: 10px 14px;
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 12px;
+  overflow-x: auto;
+}
+.preview-line {
+  white-space: nowrap;
+}
+.preview-line.muted {
+  color: var(--vscode-descriptionForeground);
+  font-style: italic;
+}
+.preview-hint {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+
+/* ---- Group / section ---- */
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.group-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 4px;
+}
+.group-header h2 {
+  margin: 0;
+}
+.group-header .hint {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.7;
+}
+.fields {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+/* ---- Fields ---- */
+.field-label {
+  font-size: 13px;
+  font-weight: 500;
+}
+.field-desc {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.4;
+  margin-top: 2px;
+}
+.field-value {
+  font-size: 12px;
+  color: var(--vscode-descriptionForeground);
+  font-variant-numeric: tabular-nums;
+}
+
+.toggle-field {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 10px;
+  align-items: start;
+  cursor: pointer;
+  padding: 6px 0;
+}
+.toggle-field input[type="checkbox"] {
+  margin: 3px 0 0;
+  cursor: pointer;
+}
+.field-text { min-width: 0; }
+
+.number-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.field-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.number-field input[type="range"] {
+  width: 100%;
+  accent-color: var(--cb-accent);
+}
+
+.text-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.text-field input[type="text"] {
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-input-border, transparent);
+  padding: 6px 8px;
+  font: inherit;
+  border-radius: 2px;
+}
+.text-field input[type="text"]:focus {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+
+/* Radio group */
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.radio-item {
+  display: grid;
+  grid-template-columns: 18px 1fr;
+  gap: 10px;
+  align-items: start;
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.radio-item:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+.radio-item input[type="radio"] {
+  margin: 3px 0 0;
+  cursor: pointer;
+  accent-color: var(--cb-accent);
+}
+.radio-label {
+  font-size: 13px;
+}
+.radio-desc {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  margin-top: 2px;
+}
+
+/* ---- Segments list ---- */
+.segments-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+  border-radius: 4px;
+  padding: 6px;
+  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.04));
+}
+.segment {
+  display: grid;
+  grid-template-columns: 18px 18px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  cursor: grab;
+  user-select: none;
+}
+.segment:active { cursor: grabbing; }
+.segment:hover { background: var(--vscode-list-hoverBackground); }
+.segment.dragging { opacity: 0.4; }
+.segment.drag-over { border-color: var(--vscode-focusBorder); }
+.drag-handle {
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.5;
+  font-size: 12px;
+}
+.segment-label { min-width: 0; }
+.segment-title {
+  font-size: 13px;
+  opacity: 0.6;
+}
+.segment.on .segment-title { opacity: 1; }
+.segment-desc {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  margin-top: 1px;
+}
+.segment-example {
+  font-family: var(--vscode-editor-font-family, monospace);
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  background: rgba(128, 128, 128, 0.12);
+  padding: 2px 6px;
+  border-radius: 2px;
+}
+
+/* ---- Preset chips ---- */
+.preset-chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+  gap: 8px;
+}
+.preset-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 10px 12px;
+  text-align: left;
+  background: var(--vscode-button-secondaryBackground, rgba(128, 128, 128, 0.1));
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  border: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+  border-radius: 4px;
+  font: inherit;
+  cursor: pointer;
+  transition: border-color 0.1s ease, background 0.1s ease;
+}
+.preset-chip:hover {
+  background: var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.18));
+}
+.preset-chip.active {
+  border-color: var(--cb-accent);
+  background: rgba(79, 195, 247, 0.12);
+}
+.preset-chip.custom {
+  cursor: default;
+  border-style: dashed;
+  background: transparent;
+}
+.preset-chip-label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.preset-chip-desc {
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+}
+.preset-actions,
+.integration-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+/* ---- Buttons ---- */
+button.secondary,
+button.danger {
+  background: var(--vscode-button-secondaryBackground, rgba(128, 128, 128, 0.1));
+  color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));
+  border: 1px solid var(--vscode-button-border, transparent);
+  padding: 6px 12px;
+  font: inherit;
+  border-radius: 2px;
+  cursor: pointer;
+}
+button.secondary:hover {
+  background: var(--vscode-button-secondaryHoverBackground, rgba(128, 128, 128, 0.18));
+}
+button.danger {
+  color: var(--vscode-errorForeground, #f14c4c);
+}
+button.danger:hover {
+  background: rgba(241, 76, 76, 0.12);
+}
+button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}

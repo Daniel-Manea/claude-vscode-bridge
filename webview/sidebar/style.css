@@ -1,0 +1,224 @@
+/* Claude Bridge sidebar dashboard. Uses VS Code theme variables. */
+
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+  background: transparent;
+}
+
+.sidebar {
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+/* ---- Branding header ---- */
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--vscode-panel-border, rgba(128, 128, 128, 0.2));
+}
+.brand .brand-mark {
+  width: 22px;
+  height: 22px;
+  color: var(--vscode-foreground);
+  flex: 0 0 auto;
+}
+.brand-title {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+/* ---- Status grid ---- */
+.status-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.status-row {
+  display: grid;
+  grid-template-columns: 10px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  box-sizing: border-box;
+}
+/* Hide the underlying checkbox visually but keep it accessible */
+.status-row-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+.status-row:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+.status-row:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: -1px;
+}
+.status-row .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--vscode-charts-red, #f14c4c);
+  box-shadow: 0 0 0 2px rgba(241, 76, 76, 0.15);
+}
+.status-row.on .dot {
+  background: var(--vscode-testing-iconPassed, #73c991);
+  box-shadow: 0 0 0 2px rgba(115, 201, 145, 0.18);
+}
+.status-row .label {
+  font-size: 13px;
+}
+.status-row .state {
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  font-weight: 600;
+}
+
+/* ---- Preset ---- */
+.preset {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.preset label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--vscode-descriptionForeground);
+  font-weight: 600;
+}
+.preset select {
+  background: var(--vscode-dropdown-background);
+  color: var(--vscode-dropdown-foreground);
+  border: 1px solid var(--vscode-dropdown-border, var(--vscode-focusBorder, transparent));
+  padding: 4px 6px;
+  font: inherit;
+  border-radius: 2px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.preset-desc {
+  margin: 0;
+  font-size: 11px;
+  color: var(--vscode-descriptionForeground);
+  line-height: 1.4;
+  min-height: 1.4em;
+}
+
+/* ---- Segments ---- */
+.segments-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+.segments-header h3 {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--vscode-descriptionForeground);
+}
+.segments-header .hint {
+  font-size: 10px;
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.7;
+}
+.segments-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.segment {
+  display: grid;
+  grid-template-columns: 14px 14px 1fr;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  cursor: grab;
+  user-select: none;
+}
+.segment:active {
+  cursor: grabbing;
+}
+.segment:hover {
+  background: var(--vscode-list-hoverBackground);
+}
+.segment.dragging {
+  opacity: 0.4;
+}
+.segment.drag-over {
+  border-color: var(--vscode-focusBorder);
+  background: var(--vscode-list-activeSelectionBackground, var(--vscode-list-hoverBackground));
+}
+.segment .drag-handle {
+  color: var(--vscode-descriptionForeground);
+  opacity: 0.5;
+  font-size: 11px;
+  cursor: grab;
+}
+.segment input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+.segment-label {
+  font-size: 13px;
+  color: var(--vscode-foreground);
+  opacity: 0.55;
+}
+.segment.on .segment-label {
+  opacity: 1;
+}
+
+/* ---- Footer ---- */
+footer {
+  margin-top: 4px;
+}
+footer button.primary {
+  width: 100%;
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border: 1px solid var(--vscode-button-border, transparent);
+  padding: 6px 10px;
+  font: inherit;
+  border-radius: 2px;
+  cursor: pointer;
+}
+footer button.primary:hover {
+  background: var(--vscode-button-hoverBackground);
+}
+footer button.primary:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
