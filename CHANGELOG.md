@@ -4,6 +4,14 @@ All notable changes to **Claude Bridge** are documented here. The format follows
 
 ---
 
+## 3.0.1
+
+### Fixed
+
+- Activity-bar icon: the brand spark sat 1 unit above the chevron midpoint. Re-centered on (12, 12).
+
+---
+
 ## 3.0.0
 
 Full v3 brand + performance rewrite. Most visible changes land in the status-line script, the sidebar dashboard, and the settings panel.
