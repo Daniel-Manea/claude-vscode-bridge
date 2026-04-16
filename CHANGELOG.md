@@ -4,6 +4,15 @@ All notable changes to **Claude Bridge** are documented here. The format follows
 
 ---
 
+## 3.2.1
+
+### Changed
+
+- **Sidebar wizard.** The three small "session" buttons become a proper six-row wizard panel: each row a big clickable card with icon, label, inline description, and a count chip where relevant. Rows: *Inject current symbol · Pin this selection · Send git diff · Pinned selections · Recent selections · Claude's edits*. Each runs the same commands the Command Center ran, so keyboard shortcuts become optional — every action is one click from the dashboard.
+- **Dropped the Keyboard Shortcuts cheat sheet** from the settings panel — shortcuts still work and can still be rebound via VS Code's Keyboard Shortcuts UI, they're just no longer advertised.
+
+---
+
 ## 3.2.0
 
 Sharpness release — every new feature reachable from the editor or the status-bar Command Center, no dashboard diving required.

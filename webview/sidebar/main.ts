@@ -366,99 +366,136 @@ function buildSegmentNode(meta: SegmentMeta): SegmentNodes {
   return { li, check, label, example, meta };
 }
 
-// ---------- Session actions (Recent / Claude's edits) ----------
+// ---------- Wizard (all-click action panel) ----------
 
-interface ActionNodes {
-  row: HTMLElement;
-  recentBtn: HTMLButtonElement;
-  recentCount: HTMLElement;
-  editsBtn: HTMLButtonElement;
-  editsCount: HTMLElement;
-  symbolBtn: HTMLButtonElement;
+interface WizardButton {
+  btn: HTMLButtonElement;
+  count: HTMLElement | null;
+  desc: HTMLElement;
 }
-let actionNodes: ActionNodes | null = null;
-
-const isMac = (navigator.platform || "").toLowerCase().includes("mac");
-const SHORTCUT_SYMBOL = isMac ? "\u2318\u21E7I" : "Ctrl+\u21E7I";
+interface WizardNodes {
+  root: HTMLElement;
+  symbol: WizardButton;
+  pin: WizardButton;
+  gitDiff: WizardButton;
+  pins: WizardButton;
+  recent: WizardButton;
+  edits: WizardButton;
+}
+let wizardNodes: WizardNodes | null = null;
 
 function renderActions(state: State): void {
   const root = document.getElementById("actionsRow");
   if (!root) return;
-  if (!actionNodes) {
-    root.className = "action-row";
-    const symbolBtn = actionButton(
-      "Inject current symbol",
-      undefined,
-      () => post({ type: "runCommand", command: "claude-bridge.injectCurrentSymbol" }),
-      {
-        shortcut: SHORTCUT_SYMBOL,
-        title:
-          `Wrap the enclosing function / class at the cursor into a selection and inject. ` +
-          `Default shortcut: ${SHORTCUT_SYMBOL}. Rebind from VS Code's Keyboard Shortcuts (` +
-          (isMac ? "\u2318K \u2318S" : "Ctrl+K Ctrl+S") + `).`,
-      },
-    );
-    const recentBtn = actionButton(
-      "Recent selections",
-      "recent-count",
-      () => post({ type: "runCommand", command: "claude-bridge.recentSelections" }),
-    );
-    const editsBtn = actionButton(
-      "Claude's edits this session",
-      "edits-count",
-      () => post({ type: "runCommand", command: "claude-bridge.showClaudeEdits" }),
-    );
-    root.append(symbolBtn.btn, recentBtn.btn, editsBtn.btn);
-    actionNodes = {
-      row: root,
-      recentBtn: recentBtn.btn,
-      recentCount: recentBtn.count!,
-      editsBtn: editsBtn.btn,
-      editsCount: editsBtn.count!,
-      symbolBtn: symbolBtn.btn,
-    };
+  if (!wizardNodes) {
+    root.className = "wizard";
+    const symbol = wizardRow(root, {
+      icon: "\u26A1",
+      label: "Inject current symbol",
+      desc: "Send the function / class at the cursor.",
+      command: "claude-bridge.injectCurrentSymbol",
+    });
+    const pin = wizardRow(root, {
+      icon: "\u2731",
+      label: "Pin this selection",
+      desc: "Select something first.",
+      command: "claude-bridge.pinSelection",
+    });
+    const gitDiff = wizardRow(root, {
+      icon: "\u21C4",
+      label: "Send git diff",
+      desc: "Working tree, staged, or PR diff.",
+      command: "claude-bridge.sendGitDiff",
+    });
+    const pins = wizardRow(root, {
+      icon: "\u2731",
+      label: "Pinned selections",
+      desc: "Open, edit, unpin.",
+      command: "claude-bridge.showPins",
+      hasCount: true,
+    });
+    const recent = wizardRow(root, {
+      icon: "\u27F3",
+      label: "Recent selections",
+      desc: "Re-inject a past selection.",
+      command: "claude-bridge.recentSelections",
+      hasCount: true,
+    });
+    const edits = wizardRow(root, {
+      icon: "\u270E",
+      label: "Claude's edits",
+      desc: "Review, diff, revert.",
+      command: "claude-bridge.showClaudeEdits",
+      hasCount: true,
+    });
+    wizardNodes = { root, symbol, pin, gitDiff, pins, recent, edits };
   }
-  // Update counts + disabled state.
-  actionNodes.recentCount.textContent = String(state.recentCount);
-  actionNodes.recentCount.classList.toggle("hot", state.recentCount > 0);
-  actionNodes.recentBtn.toggleAttribute("disabled", state.recentCount === 0);
+  // Live counts + enablement.
+  setWizardCount(wizardNodes.pins, state.pinsCount);
+  setWizardCount(wizardNodes.recent, state.recentCount);
+  setWizardCount(wizardNodes.edits, state.editsCount);
 
-  actionNodes.editsCount.textContent = String(state.editsCount);
-  actionNodes.editsCount.classList.toggle("hot", state.editsCount > 0);
-  actionNodes.editsBtn.toggleAttribute("disabled", state.editsCount === 0);
+  const hasSelection = !!state.selection;
+  wizardNodes.pin.btn.toggleAttribute("disabled", !hasSelection);
+  wizardNodes.pin.desc.textContent = hasSelection
+    ? `${state.selection!.relativePath}:${state.selection!.startLine}\u2013${state.selection!.endLine}`
+    : "Select something first.";
 }
 
-function actionButton(
-  label: string,
-  countRole: string | undefined,
-  onClick: () => void,
-  opts?: { shortcut?: string; title?: string },
-): { btn: HTMLButtonElement; count: HTMLElement | null } {
+function setWizardCount(w: WizardButton, n: number): void {
+  if (!w.count) return;
+  w.count.textContent = String(n);
+  w.count.classList.toggle("hot", n > 0);
+  w.btn.toggleAttribute("disabled", n === 0);
+}
+
+function wizardRow(
+  parent: HTMLElement,
+  opts: { icon: string; label: string; desc: string; command: string; hasCount?: boolean },
+): WizardButton {
   const btn = document.createElement("button");
   btn.type = "button";
-  if (opts?.title) btn.title = opts.title;
+  btn.className = "wizard-btn";
+  btn.title = opts.desc;
+
+  const icon = document.createElement("span");
+  icon.className = "wizard-btn__icon";
+  icon.textContent = opts.icon;
+  btn.appendChild(icon);
+
   const text = document.createElement("span");
-  text.textContent = label;
+  text.className = "wizard-btn__text";
+  const label = document.createElement("span");
+  label.className = "wizard-btn__label";
+  label.textContent = opts.label;
+  const desc = document.createElement("span");
+  desc.className = "wizard-btn__desc";
+  desc.textContent = opts.desc;
+  text.append(label, desc);
   btn.appendChild(text);
-  let countEl: HTMLElement | null = null;
-  if (countRole) {
-    countEl = document.createElement("span");
-    countEl.className = "count";
-    countEl.dataset.role = countRole;
-    countEl.textContent = "0";
-    btn.appendChild(countEl);
-  } else if (opts?.shortcut) {
-    const kbd = document.createElement("kbd");
-    kbd.className = "shortcut";
-    kbd.textContent = opts.shortcut;
-    btn.appendChild(kbd);
+
+  let count: HTMLElement | null = null;
+  if (opts.hasCount) {
+    count = document.createElement("span");
+    count.className = "wizard-btn__count";
+    count.textContent = "0";
+    btn.appendChild(count);
+  } else {
+    const chevron = document.createElement("span");
+    chevron.className = "wizard-btn__chevron";
+    chevron.textContent = "\u203A";
+    btn.appendChild(chevron);
   }
+
   btn.addEventListener("click", () => {
     if (btn.hasAttribute("disabled")) return;
-    onClick();
+    post({ type: "runCommand", command: opts.command });
   });
-  return { btn, count: countEl };
+
+  parent.appendChild(btn);
+  return { btn, count, desc };
 }
+
 
 document.getElementById("openSettingsBtn")?.addEventListener("click", () => {
   post({ type: "openSettings" });

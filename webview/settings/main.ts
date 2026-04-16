@@ -935,18 +935,10 @@ function renderCommandCenterCard(state: State): void {
   statsField.appendChild(buildSessionStripMock());
   root.appendChild(statsField);
 
-  // Keybinding cheat sheet (read-only)
-  const kbdField = document.createElement("div");
-  kbdField.className = "field";
-  const lbl = document.createElement("label");
-  lbl.className = "field-label";
-  lbl.textContent = "Keyboard shortcuts";
-  const desc = document.createElement("div");
-  desc.className = "field-desc";
-  desc.innerHTML = `These open / run the most-used actions. Rebind any of them in <em>${isMac ? "\u2318K \u2318S" : "Ctrl+K Ctrl+S"}</em> (Keyboard Shortcuts) \u2014 search \u201CClaude Bridge\u201D.`;
-  const table = buildKbdTable(isMac);
-  kbdField.append(lbl, desc, table);
-  root.appendChild(kbdField);
+  // No keyboard-shortcut cheat sheet: every action is a button in the
+  // sidebar wizard. If you do want shortcuts, they still exist — search for
+  // "Claude Bridge" in VS Code's Keyboard Shortcuts.
+  void isMac;
 }
 
 function buildCommandCenterMock(): HTMLElement {
