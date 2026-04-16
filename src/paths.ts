@@ -12,6 +12,8 @@ export const SELECTION_FILE    = path.join(HOME, ".claude-vscode-selection.json"
 export const CONTEXT_FILE      = path.join(HOME, ".claude-vscode-context.json");
 export const STATUSLINE_FILE   = path.join(HOME, ".claude-vscode-statusline.txt");
 export const CONTEXT_SENT_FILE = path.join(HOME, ".claude-vscode-context-sent");
+/** Pinned selections — merged into the injected context alongside the live selection. */
+export const PINNED_FILE       = path.join(HOME, ".claude-vscode-pinned.json");
 // Append-only log of files Claude Code has edited this session. The extension
 // tails this file and opens each new entry in VS Code.
 export const MODIFIED_LOG_FILE = path.join(HOME, ".claude-vscode-modified.log");

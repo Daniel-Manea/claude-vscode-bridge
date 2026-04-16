@@ -150,6 +150,16 @@ export class ClaudeBridgeSettingsPanel {
       <div id="context-fields"></div>
     </section>
 
+    <section class="card" id="claude-edits-card">
+      <div class="cb-eyebrow"><span class="eyebrow-label">Claude edits review</span><span class="eyebrow-hint">Inline CodeLens controls</span></div>
+      <div id="claude-edits-root"></div>
+    </section>
+
+    <section class="card" id="command-center-card">
+      <div class="cb-eyebrow"><span class="eyebrow-label">Command center</span><span class="eyebrow-hint">Quickpick + shortcuts</span></div>
+      <div id="command-center-root"></div>
+    </section>
+
     <section class="card" id="autoopen-card">
       <div class="cb-eyebrow"><span class="eyebrow-label">Auto-open edited files</span></div>
       <div id="autoopen-root"></div>

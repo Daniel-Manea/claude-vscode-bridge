@@ -2,7 +2,7 @@
   "name": "claude-vscode-bridge",
   "displayName": "Claude Bridge",
   "description": "Pipes your VS Code selection into Claude Code. Select code, ask a question — Claude sees it automatically.",
-  "version": "3.0.1",
+  "version": "3.2.0",
   "publisher": "Daniel-Manea",
   "license": "MIT",
   "icon": "media/logo.png",
@@ -114,6 +114,104 @@
         "command": "claude-bridge.diagnoseAutoOpen",
         "title": "Diagnose Auto-Open Edited Files",
         "category": "Claude Bridge"
+      },
+      {
+        "command": "claude-bridge.injectCurrentSymbol",
+        "title": "Inject Current Symbol",
+        "category": "Claude Bridge"
+      },
+      {
+        "command": "claude-bridge.recentSelections",
+        "title": "Recent Selections…",
+        "category": "Claude Bridge"
+      },
+      {
+        "command": "claude-bridge.showClaudeEdits",
+        "title": "Show Claude's Edits…",
+        "category": "Claude Bridge"
+      },
+      {
+        "command": "claude-bridge.pinSelection",
+        "title": "Pin Selection to Claude's Context",
+        "category": "Claude Bridge"
+      },
+      {
+        "command": "claude-bridge.unpinSelection",
+        "title": "Unpin Selection",
+        "category": "Claude Bridge"
+      },
+      {
+        "command": "claude-bridge.clearPins",
+        "title": "Clear All Pins",
+        "category": "Claude Bridge"
+      },
+      {
+        "command": "claude-bridge.showPins",
+        "title": "Show Pins…",
+        "category": "Claude Bridge"
+      },
+      {
+        "command": "claude-bridge.sendGitDiff",
+        "title": "Send Git Diff to Claude",
+        "category": "Claude Bridge"
+      },
+      {
+        "command": "claude-bridge.commandCenter",
+        "title": "Command Center",
+        "category": "Claude Bridge"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "claude-bridge.injectCurrentSymbol",
+        "key": "ctrl+shift+i",
+        "mac": "cmd+shift+i",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "claude-bridge.pinSelection",
+        "key": "ctrl+shift+alt+p",
+        "mac": "cmd+shift+alt+p",
+        "when": "editorTextFocus && editorHasSelection"
+      },
+      {
+        "command": "claude-bridge.sendGitDiff",
+        "key": "ctrl+shift+alt+g",
+        "mac": "cmd+shift+alt+g"
+      },
+      {
+        "command": "claude-bridge.commandCenter",
+        "key": "ctrl+shift+alt+c",
+        "mac": "cmd+shift+alt+c"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "submenu": "claude-bridge.editorContext",
+          "group": "1_modification@99"
+        }
+      ],
+      "claude-bridge.editorContext": [
+        {
+          "command": "claude-bridge.pinSelection",
+          "when": "editorHasSelection",
+          "group": "1_selection@1"
+        },
+        {
+          "command": "claude-bridge.injectCurrentSymbol",
+          "group": "1_selection@2"
+        },
+        {
+          "command": "claude-bridge.sendGitDiff",
+          "group": "2_repo@1"
+        }
+      ]
+    },
+    "submenus": [
+      {
+        "id": "claude-bridge.editorContext",
+        "label": "Claude Bridge"
       }
     ],
     "menus": {
@@ -189,6 +287,46 @@
           "type": "boolean",
           "default": true,
           "description": "For partial-line selections, include the full line with caret markers so Claude sees surrounding context."
+        },
+        "claudeBridge.includeDiagnostics": {
+          "type": "boolean",
+          "default": true,
+          "description": "Append IDE diagnostics (errors / warnings) that overlap the selection to Claude's context. Lets 'why does this break?' work without pasting the error manually."
+        },
+        "claudeBridge.includeTypeContext": {
+          "type": "boolean",
+          "default": false,
+          "description": "Append resolved types and symbol signatures (from the language server) next to the selection. Off by default — can be noisy on large selections."
+        },
+        "claudeBridge.multiCursorSelection": {
+          "type": "boolean",
+          "default": true,
+          "description": "When multiple cursors are active, bundle every selected region into the injected context instead of just the primary one."
+        },
+        "claudeBridge.pinnedContextEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow pinning a selection so it stays in Claude's context on every prompt until unpinned. Unchecked: pins are kept on disk but not injected."
+        },
+        "claudeBridge.codeLensClaudeEdits": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show an inline CodeLens at the top of files Claude has edited this session with Diff / Revert / Accept actions."
+        },
+        "claudeBridge.codeLensTestFailures": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show an inline CodeLens above failing tests with an 'Ask Claude about this failure' action that pre-injects the failure message + stack."
+        },
+        "claudeBridge.commandCenterOnStatusClick": {
+          "type": "boolean",
+          "default": true,
+          "description": "Clicking the VS Code status-bar item opens the Claude Bridge Command Center (unified quickpick). Off: clicking opens the dashboard."
+        },
+        "claudeBridge.showSessionStats": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show a live session-stats row at the top of the dashboard: selections sent, files Claude edited, token / cost totals."
         },
         "claudeBridge.excludedPatterns": {
           "type": "array",

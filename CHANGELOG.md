@@ -4,6 +4,64 @@ All notable changes to **Claude Bridge** are documented here. The format follows
 
 ---
 
+## 3.2.0
+
+Sharpness release — every new feature reachable from the editor or the status-bar Command Center, no dashboard diving required.
+
+### Added
+
+- **Pinned context.** Pin a selection with `⌘⇧⌥P` (Mac) / `Ctrl+⇧+Alt+P` — Claude sees it on every prompt until unpinned. Optional note per pin. Persisted to `~/.claude-vscode-pinned.json` so pins survive VS Code reloads.
+- **Git diff as context.** `⌘⇧⌥G` (or palette) → picks *Working tree* / *Staged only* / *PR vs. default branch*, injects the diff (capped at 2 000 lines) into Claude's context.
+- **Multi-cursor selections.** When you have more than one cursor, every selected region gets bundled into the injected context. Toggle: `claudeBridge.multiCursorSelection`.
+- **Command Center.** Clicking the `Claude Bridge` status-bar item opens a unified quickpick with every action + its keybind — one entry point, no dashboard diving. Opens with `⌘⇧⌥C`.
+- **CodeLens on Claude-edited files.** Inline `✱ Claude edited this file · N edits` row with *Diff vs HEAD*, *Accept* (drop from log), *Revert* (git checkout HEAD).
+- **CodeLens on failing tests.** Inline `✱ Ask Claude about this failure` row above every error diagnostic in test files. One click writes the failure message + enclosing symbol into Claude's context.
+- **Session strip** at the top of the sidebar: `N selections sent · M files Claude edited · K pinned`. Live-updating, passively visible.
+- **Diagnostics toggle.** The diagnostics auto-injection from 3.1 is now togglable via `claudeBridge.includeDiagnostics`.
+- **Editor context menu submenu.** Right-click in an editor → *Claude Bridge* → Pin / Inject current symbol / Send git diff.
+- **Persistent Claude-edits log.** Restored across VS Code reloads via `globalState`.
+
+### Fixed
+
+- *Show Claude's Edits* diff button now opens a proper two-pane `HEAD ↔ working` diff view (previously silently fell back to opening the file because the internal `git:` URI scheme isn't stable).
+
+### Settings (new)
+
+| Key | Default | Purpose |
+|---|---|---|
+| `claudeBridge.includeDiagnostics` | `true` | Diagnostics in context |
+| `claudeBridge.multiCursorSelection` | `true` | Bundle all cursors |
+| `claudeBridge.pinnedContextEnabled` | `true` | Allow pinned context |
+| `claudeBridge.codeLensClaudeEdits` | `true` | CodeLens on Claude-edited files |
+| `claudeBridge.codeLensTestFailures` | `true` | CodeLens on failing tests |
+| `claudeBridge.commandCenterOnStatusClick` | `true` | Status-bar click opens Command Center |
+| `claudeBridge.showSessionStats` | `true` | Session strip in sidebar |
+
+### Deferred to 3.3
+
+- LSP-powered resolved-type injection (the `includeTypeContext` setting exists but the UI and backend aren't wired yet).
+- Transcript search across `~/.claude/projects/*/transcript.jsonl`.
+
+---
+
+## 3.1.0
+
+New workflow features that sharpen the "select and ask" wedge.
+
+### Added
+
+- **Diagnostics in the injected context.** If the selected lines have a red/yellow squiggle (TypeScript error, ESLint warning, linter complaint), Claude gets the diagnostic message appended to the context block — so asking "why does this break?" gives Claude the actual error without you having to paste it.
+- **Inject current symbol (`⌘⇧I` / `Ctrl⇧I`).** One shortcut sends the enclosing function / class / method at your cursor — no manual selection required. Uses VS Code's document-symbol provider.
+- **Recent selections (`Claude Bridge: Recent Selections…`).** Last ten selections surfaced in a QuickPick; picking one re-opens the file and reselects the range (which re-injects automatically). Ring-buffered in memory, de-duplicated on same range.
+- **Claude's edits this session (`Claude Bridge: Show Claude's Edits…`).** Running session log of every file Claude edits. Per-file buttons in the picker: *Diff vs. HEAD* opens VS Code's two-pane diff editor, *Revert to HEAD* runs `git checkout HEAD -- <file>` after a confirm. A *Clear* button on the picker header empties the session log without touching files.
+- **Sidebar "Session" section.** Three new buttons at the bottom of the dashboard: *Inject current symbol*, *Recent selections* (with a live count), *Claude's edits this session* (with a live count). Counts highlight terracotta when non-zero.
+
+### Changed
+
+- `fileOpener.ts` refactored: the edits watcher now runs unconditionally; the auto-open toggle only decides whether to open files as they appear. Tracking is always on so the edits log is populated regardless.
+
+---
+
 ## 3.0.1
 
 ### Fixed

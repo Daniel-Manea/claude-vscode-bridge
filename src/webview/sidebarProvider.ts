@@ -75,6 +75,8 @@ export class ClaudeBridgeSidebarProvider implements vscode.WebviewViewProvider {
 
     <section class="setup-section" id="setupSection"></section>
 
+    <section class="session-strip" id="sessionStrip" aria-label="Session stats"></section>
+
     <section class="cb-section" id="statusSection" aria-label="Feature toggles">
       <div class="cb-eyebrow"><span class="eyebrow-label">Toggles</span></div>
       <div class="status-grid" id="statusGrid"></div>
@@ -89,6 +91,11 @@ export class ClaudeBridgeSidebarProvider implements vscode.WebviewViewProvider {
     <section class="cb-section" id="segmentsSection" aria-label="Status line segments">
       <div class="cb-eyebrow"><span class="eyebrow-label">Segments</span><span class="eyebrow-hint">Drag to reorder</span></div>
       <ul id="segmentsList" class="segments-list"></ul>
+    </section>
+
+    <section class="cb-section" id="actionsSection" aria-label="Session actions">
+      <div class="cb-eyebrow"><span class="eyebrow-label">Session</span></div>
+      <div id="actionsRow"></div>
     </section>
 
     <footer id="footerSection">

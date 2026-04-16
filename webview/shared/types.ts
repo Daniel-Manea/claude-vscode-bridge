@@ -29,6 +29,14 @@ export interface CoreSettings {
   statusLineBarStyle: "blocks" | "squares" | "shades" | "dots";
   statusLineCompact: boolean;
   showPartialLineContext: boolean;
+  includeDiagnostics: boolean;
+  includeTypeContext: boolean;
+  multiCursorSelection: boolean;
+  pinnedContextEnabled: boolean;
+  codeLensClaudeEdits: boolean;
+  codeLensTestFailures: boolean;
+  commandCenterOnStatusClick: boolean;
+  showSessionStats: boolean;
   activePreset: string;
   excludedPatterns: string[];
   [k: string]: unknown;
@@ -51,6 +59,10 @@ export interface State {
   selection: SelectionInfo | null;
   /** True once Claude Bridge has been installed into ~/.claude/settings.json. */
   setupCompleted: boolean;
+  recentCount: number;
+  editsCount: number;
+  pinsCount: number;
+  selectionsWritten: number;
 }
 
 export interface VsCodeApi {

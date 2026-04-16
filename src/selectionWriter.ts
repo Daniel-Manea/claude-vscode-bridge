@@ -21,6 +21,7 @@ import {
 import { getConfig, isFileExcluded } from "./settings";
 import { normalizeSegments } from "./segments";
 import { SelectionInfo } from "./webview/messages";
+import { renderPinnedBlock } from "./pinnedContext";
 
 // --- Module state ---
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -30,6 +31,45 @@ let statusBarItem: vscode.StatusBarItem | undefined;
 let onSelectionChanged: (() => void) | undefined;
 let logFn: ((msg: string) => void) | undefined;
 let extensionVersion = "";
+
+// Recent-selections ring — last N distinct selections, most-recent first.
+export interface RecentSelection {
+  absolutePath: string;
+  relativePath: string;
+  startLine: number;
+  endLine: number;
+  lineCount: number;
+  isPartial: boolean;
+  snippet: string;
+  timestamp: number;
+}
+const RECENT_CAP = 10;
+let recentSelections: RecentSelection[] = [];
+let selectionsWrittenThisSession = 0;
+
+export function getRecentSelections(): RecentSelection[] {
+  return recentSelections.slice();
+}
+
+export function getSessionStats(): { selectionsWritten: number } {
+  return { selectionsWritten: selectionsWrittenThisSession };
+}
+
+export async function reinjectRecent(entry: RecentSelection): Promise<void> {
+  try {
+    const uri = vscode.Uri.file(entry.absolutePath);
+    const doc = await vscode.workspace.openTextDocument(uri);
+    const editor = await vscode.window.showTextDocument(doc, { preview: false });
+    const start = new vscode.Position(entry.startLine - 1, 0);
+    const endLineIdx = Math.min(entry.endLine - 1, doc.lineCount - 1);
+    const endCol = doc.lineAt(endLineIdx).text.length;
+    const end = new vscode.Position(endLineIdx, endCol);
+    editor.selection = new vscode.Selection(start, end);
+    editor.revealRange(new vscode.Range(start, end), vscode.TextEditorRevealType.InCenter);
+  } catch (err) {
+    vscode.window.showErrorMessage(`Claude Bridge: couldn't reopen selection — ${(err as Error).message}`);
+  }
+}
 // Injection tracking: the hook stores the mtime (in seconds) of the last
 // context.json it successfully delivered. We compare to our own last-write
 // mtime to show "pending" vs "delivered" in the tooltip.
@@ -129,9 +169,39 @@ export async function cleanupFiles(): Promise<void> {
       fs.unlink(f + ".tmp").catch(() => {}),
     ]),
   );
+  // If pins are enabled and populated, immediately rewrite context.json with
+  // just the pinned block so the next Claude prompt still sees them.
+  await syncPinsOnlyContext();
   updateStatusBarItem(null);
   currentSelection = null;
   onSelectionChanged?.();
+}
+
+/**
+ * Rewrite `~/.claude-vscode-context.json` using *only* the pinned block.
+ * Called when the selection goes empty or when pins change. No-op if there
+ * are no pins or the pin feature is disabled.
+ */
+export async function syncPinsOnlyContext(): Promise<void> {
+  const cfg = getConfig();
+  if (!cfg.get<boolean>("contextInjection", true)) return;
+  if (!cfg.get<boolean>("pinnedContextEnabled", true)) return;
+  const pinned = renderPinnedBlock();
+  if (!pinned) return;
+  try {
+    await atomicWrite(
+      CONTEXT_FILE,
+      JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "UserPromptSubmit",
+          additionalContext: pinned,
+        },
+      }),
+    );
+    lastContextMtimeSec = Math.floor(statSync(CONTEXT_FILE).mtimeMs / 1000);
+  } catch (err) {
+    logFn?.(`syncPinsOnlyContext: ${(err as Error).message}`);
+  }
 }
 
 export function cleanupFilesSync(): void {
@@ -347,22 +417,52 @@ function buildContext(
   fullLine: string | null,
   startChar: number,
   endChar: number,
+  diagnostics: string[] = [],
 ): string {
   const cfg = getConfig();
   const showPartial = cfg.get<boolean>("showPartialLineContext", true);
+  const diagBlock = diagnostics.length > 0
+    ? "\n\nDiagnostics on this range:\n" + diagnostics.map((d) => `  - ${d}`).join("\n")
+    : "";
 
   if (fullLine !== null && showPartial) {
     const marker = " ".repeat(startChar) + "^".repeat(endChar - startChar);
     return (
       `${relativePath}#L${startLine} (partial)\n` +
       `\`\`\`\n${fullLine}\n${marker}\n\`\`\`\n` +
-      `Selected text: "${text}"`
+      `Selected text: "${text}"` + diagBlock
     );
   }
   return (
     `${relativePath}:${startLine}-${endLine} (${lineCount} lines)\n` +
-    `\`\`\`\n${text}\n\`\`\``
+    `\`\`\`\n${text}\n\`\`\`` + diagBlock
   );
+}
+
+/**
+ * Collect all diagnostics (errors, warnings, info) whose range intersects
+ * the selection. Formatted for Claude: "[severity] line N: message".
+ */
+function collectDiagnostics(
+  uri: vscode.Uri,
+  selection: vscode.Selection,
+): string[] {
+  const diagnostics = vscode.languages.getDiagnostics(uri);
+  const selectionRange = new vscode.Range(selection.start, selection.end);
+  const severity: Record<number, string> = {
+    0: "error",
+    1: "warning",
+    2: "info",
+    3: "hint",
+  };
+  return diagnostics
+    .filter((d) => d.range.intersection(selectionRange) !== undefined)
+    .map((d) => {
+      const sev = severity[d.severity] ?? "diag";
+      const line = d.range.start.line + 1;
+      const source = d.source ? ` (${d.source})` : "";
+      return `[${sev}] line ${line}${source}: ${d.message}`;
+    });
 }
 
 function buildSelectionStatusLine(
@@ -534,7 +634,14 @@ export function writeSelection(editor: vscode.TextEditor | undefined): void {
         lineCount = maxLines;
       }
 
-      const key = `${absolutePath}:${selection.start.line}:${selection.start.character}-${selection.end.line}:${selection.end.character}`;
+      // Factor every active selection into the dedupe key so that moving a
+      // secondary cursor while keeping the primary triggers a rewrite.
+      const key =
+        absolutePath +
+        ":" +
+        editor.selections
+          .map((s) => `${s.start.line}:${s.start.character}-${s.end.line}:${s.end.character}`)
+          .join(",");
       if (key === lastSelectionKey) return;
       lastSelectionKey = key;
 
@@ -567,7 +674,10 @@ export function writeSelection(editor: vscode.TextEditor | undefined): void {
       );
 
       if (cfg.get<boolean>("contextInjection", true)) {
-        const contextStr = buildContext(
+        const diagnostics = cfg.get<boolean>("includeDiagnostics", true)
+          ? collectDiagnostics(editor.document.uri, selection)
+          : [];
+        let contextStr = buildContext(
           relativePath,
           startLine,
           endLine,
@@ -576,7 +686,48 @@ export function writeSelection(editor: vscode.TextEditor | undefined): void {
           isPartial ? fullLineText : null,
           selection.start.character,
           selection.end.character,
+          diagnostics,
         );
+        // Multi-cursor: if enabled and there are additional non-empty
+        // selections, append each one as its own block. Primary selection
+        // (first in `editor.selections`) is already rendered above.
+        if (cfg.get<boolean>("multiCursorSelection", true) && editor.selections.length > 1) {
+          const extras: string[] = [];
+          for (let i = 1; i < editor.selections.length; i++) {
+            const sel = editor.selections[i];
+            if (sel.isEmpty) continue;
+            const extraText = editor.document.getText(sel);
+            if (extraText.trim().length === 0) continue;
+            const s = sel.start.line + 1;
+            const e = sel.end.line + 1;
+            const lc = e - s + 1;
+            const diag = cfg.get<boolean>("includeDiagnostics", true)
+              ? collectDiagnostics(editor.document.uri, sel)
+              : [];
+            extras.push(
+              buildContext(
+                relativePath,
+                s,
+                e,
+                lc,
+                extraText,
+                null,
+                sel.start.character,
+                sel.end.character,
+                diag,
+              ),
+            );
+          }
+          if (extras.length > 0) {
+            contextStr =
+              `=== Multi-cursor selection (${extras.length + 1} regions) ===\n\n` +
+              contextStr + "\n\n" + extras.join("\n\n");
+          }
+        }
+        if (cfg.get<boolean>("pinnedContextEnabled", true)) {
+          const pinned = renderPinnedBlock();
+          if (pinned) contextStr = pinned + "\n\n" + contextStr;
+        }
         writes.push(
           atomicWrite(
             CONTEXT_FILE,
@@ -625,6 +776,31 @@ export function writeSelection(editor: vscode.TextEditor | undefined): void {
         lineCount,
         isPartial,
       };
+
+      selectionsWrittenThisSession += 1;
+
+      // Push to the recent-selections ring. De-dupe on (path, startLine, endLine).
+      const snippet = text.split("\n", 1)[0].slice(0, 80);
+      const existingIdx = recentSelections.findIndex(
+        (r) =>
+          r.absolutePath === absolutePath &&
+          r.startLine === startLine &&
+          r.endLine === endLine,
+      );
+      if (existingIdx >= 0) recentSelections.splice(existingIdx, 1);
+      recentSelections.unshift({
+        absolutePath,
+        relativePath,
+        startLine,
+        endLine,
+        lineCount,
+        isPartial,
+        snippet,
+        timestamp: Date.now(),
+      });
+      if (recentSelections.length > RECENT_CAP) {
+        recentSelections = recentSelections.slice(0, RECENT_CAP);
+      }
 
       const maxPath = cfg.get<number>("statusLineMaxPath", 30);
       const pathStyle = cfg.get<string>("statusLinePathStyle", "basename");

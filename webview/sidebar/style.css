@@ -48,6 +48,39 @@ body {
 
 /* Empty setup-section collapses instead of eating the flex gap. */
 .setup-section:empty { display: none; }
+.session-strip:empty { display: none; }
+
+/* ---- Session strip ----
+ * Tiny passive row showing what the bridge has done this session. Matches
+ * the terminal status line visually with dim-terracotta separators. */
+.session-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 10px;
+  border-radius: var(--cb-radius-md);
+  background: var(--cb-surface-raised);
+  box-shadow: var(--cb-elev-1);
+  font-size: 11px;
+  color: var(--cb-muted);
+}
+.session-strip .stat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  white-space: nowrap;
+}
+.session-strip .stat b {
+  color: var(--cb-fg);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--cb-font-mono);
+}
+.session-strip .sep {
+  color: var(--cb-accent);
+  opacity: 0.45;
+}
 
 /* ---- First-run card (accent) ---- */
 .setup-card {
@@ -229,6 +262,59 @@ body {
   background: var(--cb-surface-raised);
   color: var(--cb-muted);
   white-space: nowrap;
+}
+
+/* ---- Session actions ---- */
+.action-row { display: flex; flex-direction: column; gap: 4px; }
+.action-row button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 7px 8px;
+  background: transparent;
+  border: 1px solid var(--cb-border);
+  border-radius: var(--cb-radius-sm);
+  font: inherit;
+  font-size: 12px;
+  color: var(--cb-fg);
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--cb-dur-fast) var(--cb-ease-out),
+    border-color var(--cb-dur-fast) var(--cb-ease-out);
+}
+.action-row button:hover {
+  background: var(--vscode-list-hoverBackground);
+  border-color: var(--cb-border-strong);
+}
+.action-row button[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.action-row .count {
+  margin-left: auto;
+  font-family: var(--cb-font-mono);
+  font-size: 10px;
+  color: var(--cb-muted);
+  background: var(--cb-surface-raised);
+  padding: 1px 6px;
+  border-radius: var(--cb-radius-sm);
+}
+.action-row .count.hot {
+  color: var(--cb-accent);
+  background: var(--cb-accent-subtle);
+}
+.action-row .shortcut {
+  margin-left: auto;
+  font-family: var(--cb-font-mono);
+  font-size: 10px;
+  letter-spacing: 0.3px;
+  color: var(--cb-muted);
+  background: var(--cb-surface-raised);
+  padding: 1px 6px;
+  border: 1px solid var(--cb-border);
+  border-radius: var(--cb-radius-sm);
 }
 
 /* ---- Footer ---- */

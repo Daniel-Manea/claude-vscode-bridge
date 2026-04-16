@@ -72,6 +72,16 @@ function render(state: State): void {
   if (!prev || prev.settings.autoOpenModifiedFiles !== state.settings.autoOpenModifiedFiles) {
     renderAutoOpenCard(state);
   }
+  if (!prev ||
+      prev.settings.codeLensClaudeEdits !== state.settings.codeLensClaudeEdits ||
+      prev.settings.codeLensTestFailures !== state.settings.codeLensTestFailures) {
+    renderClaudeEditsCard(state);
+  }
+  if (!prev ||
+      prev.settings.commandCenterOnStatusClick !== state.settings.commandCenterOnStatusClick ||
+      prev.settings.showSessionStats !== state.settings.showSessionStats) {
+    renderCommandCenterCard(state);
+  }
 
   applyDim(state);
 
@@ -604,6 +614,48 @@ function renderContextCard(state: State): void {
   partialField.appendChild(buildPartialLinePreview(state.settings.showPartialLineContext));
   root.appendChild(partialField);
 
+  // --- Include diagnostics ---
+  const diagField = document.createElement("div");
+  diagField.className = "field";
+  const diagRow = buildToggleRow(
+    "f-includeDiag",
+    "includeDiagnostics",
+    "Include diagnostics",
+    "If the selection has a red or yellow squiggle (TypeScript error, ESLint warning, linter complaint), attach the diagnostic message to the injected context. Lets you ask \u201Cwhy does this break?\u201D without pasting the error yourself.",
+    state.settings.includeDiagnostics,
+  );
+  diagField.appendChild(diagRow);
+  diagField.appendChild(buildDiagnosticsPreview(state.settings.includeDiagnostics));
+  root.appendChild(diagField);
+
+  // --- Multi-cursor ---
+  const multiField = document.createElement("div");
+  multiField.className = "field";
+  const multiRow = buildToggleRow(
+    "f-multiCursor",
+    "multiCursorSelection",
+    "Multi-cursor selections",
+    "When you have more than one cursor active, bundle every selected region into the injected context. Off: only the primary cursor is sent.",
+    state.settings.multiCursorSelection,
+  );
+  multiField.appendChild(multiRow);
+  multiField.appendChild(buildMultiCursorPreview(state.settings.multiCursorSelection));
+  root.appendChild(multiField);
+
+  // --- Pinned context ---
+  const pinField = document.createElement("div");
+  pinField.className = "field";
+  const pinRow = buildToggleRow(
+    "f-pinned",
+    "pinnedContextEnabled",
+    "Pinned context",
+    "Keep pinned selections in Claude\u2019s context on every prompt until unpinned. Pin with \u2318\u21E7\u2325P (Mac) / Ctrl+\u21E7Alt+P (Win/Linux) after selecting code. Off: pins are kept on disk but not injected.",
+    state.settings.pinnedContextEnabled,
+  );
+  pinField.appendChild(pinRow);
+  pinField.appendChild(buildPinPreview());
+  root.appendChild(pinField);
+
   // --- Excluded patterns ---
   const excField = document.createElement("div");
   excField.className = "field";
@@ -699,6 +751,81 @@ function buildMaxLinesPreview(maxLines: number): HTMLElement {
   return box;
 }
 
+function buildDiagnosticsPreview(on: boolean): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "partial-preview";
+  const lines: string[] = [];
+  lines.push(`<span class="tag">diagnostics \u00B7 ${on ? "on" : "off"}</span>`);
+  lines.push('<span class="path">app.ts:12-15 (4 lines)</span>');
+  lines.push('<span class="fence">```</span>');
+  lines.push('function greet(name) {');
+  lines.push('  return "Hello, " + <span class="selected">user</span>;');
+  lines.push('}');
+  lines.push('<span class="fence">```</span>');
+  if (on) {
+    lines.push('');
+    lines.push('<span class="note">Diagnostics on this range:</span>');
+    lines.push('  - [error] line 13 (ts): <span class="caret">Cannot find name \u2018user\u2019. Did you mean \u2018name\u2019?</span>');
+  }
+  box.innerHTML = lines.join("\n");
+  return box;
+}
+
+function buildMultiCursorPreview(on: boolean): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "partial-preview";
+  const lines: string[] = [];
+  lines.push(`<span class="tag">multi-cursor \u00B7 ${on ? "bundled" : "primary only"}</span>`);
+  if (on) {
+    lines.push('=== Multi-cursor selection (3 regions) ===');
+    lines.push('');
+    lines.push('<span class="path">app.ts:42 (1 line)</span>');
+    lines.push('<span class="fence">```</span>');
+    lines.push('  <span class="selected">const user = getUser(id);</span>');
+    lines.push('<span class="fence">```</span>');
+    lines.push('<span class="path">app.ts:78 (1 line)</span>');
+    lines.push('<span class="fence">```</span>');
+    lines.push('  <span class="selected">const user = authUser();</span>');
+    lines.push('<span class="fence">```</span>');
+    lines.push('<span class="path">app.ts:112 (1 line)</span>');
+    lines.push('<span class="fence">```</span>');
+    lines.push('  <span class="selected">const user = req.user;</span>');
+    lines.push('<span class="fence">```</span>');
+  } else {
+    lines.push('<span class="path">app.ts:42 (1 line)</span>');
+    lines.push('<span class="fence">```</span>');
+    lines.push('  <span class="selected">const user = getUser(id);</span>');
+    lines.push('<span class="fence">```</span>');
+    lines.push('<span class="note">(Other cursors ignored.)</span>');
+  }
+  box.innerHTML = lines.join("\n");
+  return box;
+}
+
+function buildPinPreview(): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "partial-preview";
+  const lines: string[] = [
+    '<span class="tag">pinned + live</span>',
+    '=== Pinned context (2 pins) ===',
+    '<span class="path">schema.ts:1-40 (40 lines) \u2014 current schema</span>',
+    '<span class="fence">```</span>',
+    'export interface User { \u2026 }',
+    '<span class="fence">```</span>',
+    '<span class="path">config.ts:10-18 (9 lines) \u2014 feature flags</span>',
+    '<span class="fence">```</span>',
+    'export const FLAGS = { \u2026 }',
+    '<span class="fence">```</span>',
+    '',
+    '<span class="path">auth.ts:112 (1 line)  \u2190 live selection</span>',
+    '<span class="fence">```</span>',
+    '  <span class="selected">validateToken(req.user)</span>',
+    '<span class="fence">```</span>',
+  ];
+  box.innerHTML = lines.join("\n");
+  return box;
+}
+
 function buildPartialLinePreview(showPartial: boolean): HTMLElement {
   const box = document.createElement("div");
   box.className = "partial-preview";
@@ -720,6 +847,155 @@ function buildPartialLinePreview(showPartial: boolean): HTMLElement {
   }
   box.innerHTML = lines.join("\n");
   return box;
+}
+
+// ---------- Claude edits review card ----------
+
+function renderClaudeEditsCard(state: State): void {
+  const root = document.getElementById("claude-edits-root");
+  if (!root) return;
+  root.innerHTML = "";
+
+  const editsField = document.createElement("div");
+  editsField.className = "field";
+  editsField.appendChild(buildToggleRow(
+    "f-codeLensClaudeEdits",
+    "codeLensClaudeEdits",
+    "CodeLens on Claude-edited files",
+    "Show an inline row at the top of any file Claude has edited this session with Diff / Revert / Accept buttons.",
+    state.settings.codeLensClaudeEdits,
+  ));
+  editsField.appendChild(buildCodeLensMock("\u2731 Claude edited this file \u00B7 3 edits", [
+    ["$(diff)", "Diff vs. HEAD"],
+    ["$(check)", "Accept"],
+    ["$(discard)", "Revert"],
+  ]));
+  root.appendChild(editsField);
+
+  const failField = document.createElement("div");
+  failField.className = "field";
+  failField.appendChild(buildToggleRow(
+    "f-codeLensTestFailures",
+    "codeLensTestFailures",
+    "CodeLens on failing tests",
+    "Show an inline \u201CAsk Claude about this failure\u201D row above every error diagnostic in a test file. One click writes the failure message + stack into Claude\u2019s context.",
+    state.settings.codeLensTestFailures,
+  ));
+  failField.appendChild(buildCodeLensMock("\u2731 Ask Claude about this failure", []));
+  root.appendChild(failField);
+}
+
+function buildCodeLensMock(title: string, actions: Array<[string, string]>): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "partial-preview";
+  const head = '<span class="tag">codelens \u00B7 preview</span>';
+  const row = `<span class="selected">${escapeCodelensTitle(title)}</span>` +
+    (actions.length
+      ? "  " + actions.map(([_, label]) => `<span class="note">[${label}]</span>`).join("  ")
+      : "");
+  box.innerHTML = [head, row].join("\n");
+  return box;
+}
+
+function escapeCodelensTitle(s: string): string {
+  return s.replace(/\$\([^)]+\)\s*/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
+}
+
+// ---------- Command Center card ----------
+
+function renderCommandCenterCard(state: State): void {
+  const root = document.getElementById("command-center-root");
+  if (!root) return;
+  root.innerHTML = "";
+  const isMac = /mac/i.test(navigator.platform || "");
+
+  // Quickpick toggle
+  const qpField = document.createElement("div");
+  qpField.className = "field";
+  qpField.appendChild(buildToggleRow(
+    "f-commandCenter",
+    "commandCenterOnStatusClick",
+    "Open Command Center on status-bar click",
+    "Clicking the \u2018Claude Bridge\u2019 status-bar item opens the unified quickpick with every action + keybinding. Off: clicks open the dashboard instead.",
+    state.settings.commandCenterOnStatusClick,
+  ));
+  qpField.appendChild(buildCommandCenterMock());
+  root.appendChild(qpField);
+
+  // Session stats toggle
+  const statsField = document.createElement("div");
+  statsField.className = "field";
+  statsField.appendChild(buildToggleRow(
+    "f-showSessionStats",
+    "showSessionStats",
+    "Show session stats in sidebar",
+    "Live-updating row at the top of the dashboard: selections sent, files Claude edited, pins active.",
+    state.settings.showSessionStats,
+  ));
+  statsField.appendChild(buildSessionStripMock());
+  root.appendChild(statsField);
+
+  // Keybinding cheat sheet (read-only)
+  const kbdField = document.createElement("div");
+  kbdField.className = "field";
+  const lbl = document.createElement("label");
+  lbl.className = "field-label";
+  lbl.textContent = "Keyboard shortcuts";
+  const desc = document.createElement("div");
+  desc.className = "field-desc";
+  desc.innerHTML = `These open / run the most-used actions. Rebind any of them in <em>${isMac ? "\u2318K \u2318S" : "Ctrl+K Ctrl+S"}</em> (Keyboard Shortcuts) \u2014 search \u201CClaude Bridge\u201D.`;
+  const table = buildKbdTable(isMac);
+  kbdField.append(lbl, desc, table);
+  root.appendChild(kbdField);
+}
+
+function buildCommandCenterMock(): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "partial-preview";
+  const lines: string[] = [
+    '<span class="tag">command center \u00B7 mock</span>',
+    '<span class="path">Claude Bridge \u00B7 quick actions</span>',
+    '  \u26A1 Inject current symbol                   <span class="note">\u2318\u21E7I</span>',
+    '  \uD83D\uDCCC Pin current selection                   <span class="note">\u2318\u21E7\u2325P</span>',
+    '  \u21C4 Send git diff to Claude                 <span class="note">\u2318\u21E7\u2325G</span>',
+    '  \uD83D\uDCCC Pinned selections                        <span class="note">2 pinned</span>',
+    '  \u27F3 Recent selections                        <span class="note">6 recent</span>',
+    '  \u270E Claude\u2019s edits this session              <span class="note">3 files</span>',
+  ];
+  box.innerHTML = lines.join("\n");
+  return box;
+}
+
+function buildSessionStripMock(): HTMLElement {
+  const box = document.createElement("div");
+  box.className = "partial-preview";
+  box.innerHTML = [
+    '<span class="tag">sidebar header \u00B7 mock</span>',
+    '  <span class="selected">47</span>  selections sent  <span class="caret">\u00B7</span>  <span class="selected">8</span>  files Claude edited  <span class="caret">\u00B7</span>  <span class="selected">2</span>  pinned',
+  ].join("\n");
+  return box;
+}
+
+function buildKbdTable(isMac: boolean): HTMLElement {
+  const rows: Array<[string, string]> = [
+    ["Inject current symbol", isMac ? "\u2318\u21E7I" : "Ctrl+\u21E7I"],
+    ["Pin / unpin selection", isMac ? "\u2318\u21E7\u2325P" : "Ctrl+\u21E7Alt+P"],
+    ["Send git diff to Claude", isMac ? "\u2318\u21E7\u2325G" : "Ctrl+\u21E7Alt+G"],
+    ["Open Command Center", isMac ? "\u2318\u21E7\u2325C" : "Ctrl+\u21E7Alt+C"],
+  ];
+  const wrap = document.createElement("div");
+  wrap.className = "kbd-table";
+  for (const [label, key] of rows) {
+    const row = document.createElement("div");
+    row.className = "kbd-row";
+    const l = document.createElement("span");
+    l.textContent = label;
+    const k = document.createElement("kbd");
+    k.textContent = key;
+    row.append(l, k);
+    wrap.appendChild(row);
+  }
+  return wrap;
 }
 
 // ---------- Auto-open card ----------

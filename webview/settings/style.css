@@ -400,3 +400,29 @@ input[type="range"] {
   width: 100%;
   accent-color: var(--cb-accent);
 }
+
+/* ---- Keyboard shortcut table ---- */
+.kbd-table {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: var(--cb-space-2);
+}
+.kbd-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  padding: 4px 0;
+  border-bottom: 1px dashed var(--cb-border);
+}
+.kbd-row:last-child { border-bottom: 0; }
+.kbd-row kbd {
+  font-family: var(--cb-font-mono);
+  font-size: 10px;
+  padding: 2px 8px;
+  background: var(--cb-surface-raised);
+  border: 1px solid var(--cb-border);
+  border-radius: var(--cb-radius-sm);
+  color: var(--cb-fg);
+}

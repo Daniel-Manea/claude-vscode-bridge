@@ -13,6 +13,14 @@ export interface ClaudeBridgeSettings {
   statusLineBarStyle: BarStyle;
   statusLineCompact: boolean;
   showPartialLineContext: boolean;
+  includeDiagnostics: boolean;
+  includeTypeContext: boolean;
+  multiCursorSelection: boolean;
+  pinnedContextEnabled: boolean;
+  codeLensClaudeEdits: boolean;
+  codeLensTestFailures: boolean;
+  commandCenterOnStatusClick: boolean;
+  showSessionStats: boolean;
   activePreset: string;
   excludedPatterns: string[];
 }
@@ -40,6 +48,12 @@ export interface State {
   selection: SelectionInfo | null;
   /** True once Claude Bridge has been installed into ~/.claude/settings.json. */
   setupCompleted: boolean;
+  /** Counters shown in the sidebar. */
+  recentCount: number;
+  editsCount: number;
+  pinsCount: number;
+  /** Total successful selection writes this session (i.e. times the bridge files got rewritten). */
+  selectionsWritten: number;
 }
 
 // ---------- Webview -> Extension ----------
@@ -53,7 +67,8 @@ export type InboundMessage =
   | { type: "openSettings" }
   | { type: "install" }
   | { type: "uninstall" }
-  | { type: "perf"; label: string; ms: number };
+  | { type: "perf"; label: string; ms: number }
+  | { type: "runCommand"; command: string };
 
 // ---------- Extension -> Webview ----------
 export type OutboundMessage =

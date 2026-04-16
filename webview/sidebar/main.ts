@@ -34,11 +34,68 @@ function render(state: State): void {
   if (!prev || prev.setupCompleted !== state.setupCompleted) renderSetup(state);
 
   // Hot sections — idempotent diff-render.
+  renderSessionStrip(state);
   renderStatusGrid(state);
   renderPresets(state);
   renderSegments(state);
+  renderActions(state);
 
   applySidebarDim(state);
+}
+
+// ---------- Session strip ----------
+
+interface StripNodes {
+  root: HTMLElement;
+  selections: HTMLElement;
+  edits: HTMLElement;
+  pins: HTMLElement;
+}
+let stripNodes: StripNodes | null = null;
+
+function renderSessionStrip(state: State): void {
+  const root = document.getElementById("sessionStrip");
+  if (!root) return;
+
+  const enabled = state.settings.showSessionStats && state.setupCompleted;
+  if (!enabled) {
+    root.innerHTML = "";
+    stripNodes = null;
+    return;
+  }
+
+  if (!stripNodes) {
+    root.innerHTML = "";
+    const sel = stat(root, "selections", "selections sent");
+    sep(root);
+    const ed = stat(root, "edits", "files Claude edited");
+    sep(root);
+    const pin = stat(root, "pins", "pinned");
+    stripNodes = { root, selections: sel, edits: ed, pins: pin };
+  }
+  stripNodes.selections.textContent = String(state.selectionsWritten);
+  stripNodes.edits.textContent = String(state.editsCount);
+  stripNodes.pins.textContent = String(state.pinsCount);
+}
+
+function stat(parent: HTMLElement, id: string, label: string): HTMLElement {
+  const wrap = document.createElement("span");
+  wrap.className = "stat";
+  const b = document.createElement("b");
+  b.dataset.role = id;
+  b.textContent = "0";
+  const s = document.createElement("span");
+  s.textContent = label;
+  wrap.append(b, s);
+  parent.appendChild(wrap);
+  return b;
+}
+
+function sep(parent: HTMLElement): void {
+  const s = document.createElement("span");
+  s.className = "sep";
+  s.textContent = "\u00B7";
+  parent.appendChild(s);
 }
 
 function applySidebarDim(state: State): void {
@@ -307,6 +364,100 @@ function buildSegmentNode(meta: SegmentMeta): SegmentNodes {
   });
 
   return { li, check, label, example, meta };
+}
+
+// ---------- Session actions (Recent / Claude's edits) ----------
+
+interface ActionNodes {
+  row: HTMLElement;
+  recentBtn: HTMLButtonElement;
+  recentCount: HTMLElement;
+  editsBtn: HTMLButtonElement;
+  editsCount: HTMLElement;
+  symbolBtn: HTMLButtonElement;
+}
+let actionNodes: ActionNodes | null = null;
+
+const isMac = (navigator.platform || "").toLowerCase().includes("mac");
+const SHORTCUT_SYMBOL = isMac ? "\u2318\u21E7I" : "Ctrl+\u21E7I";
+
+function renderActions(state: State): void {
+  const root = document.getElementById("actionsRow");
+  if (!root) return;
+  if (!actionNodes) {
+    root.className = "action-row";
+    const symbolBtn = actionButton(
+      "Inject current symbol",
+      undefined,
+      () => post({ type: "runCommand", command: "claude-bridge.injectCurrentSymbol" }),
+      {
+        shortcut: SHORTCUT_SYMBOL,
+        title:
+          `Wrap the enclosing function / class at the cursor into a selection and inject. ` +
+          `Default shortcut: ${SHORTCUT_SYMBOL}. Rebind from VS Code's Keyboard Shortcuts (` +
+          (isMac ? "\u2318K \u2318S" : "Ctrl+K Ctrl+S") + `).`,
+      },
+    );
+    const recentBtn = actionButton(
+      "Recent selections",
+      "recent-count",
+      () => post({ type: "runCommand", command: "claude-bridge.recentSelections" }),
+    );
+    const editsBtn = actionButton(
+      "Claude's edits this session",
+      "edits-count",
+      () => post({ type: "runCommand", command: "claude-bridge.showClaudeEdits" }),
+    );
+    root.append(symbolBtn.btn, recentBtn.btn, editsBtn.btn);
+    actionNodes = {
+      row: root,
+      recentBtn: recentBtn.btn,
+      recentCount: recentBtn.count!,
+      editsBtn: editsBtn.btn,
+      editsCount: editsBtn.count!,
+      symbolBtn: symbolBtn.btn,
+    };
+  }
+  // Update counts + disabled state.
+  actionNodes.recentCount.textContent = String(state.recentCount);
+  actionNodes.recentCount.classList.toggle("hot", state.recentCount > 0);
+  actionNodes.recentBtn.toggleAttribute("disabled", state.recentCount === 0);
+
+  actionNodes.editsCount.textContent = String(state.editsCount);
+  actionNodes.editsCount.classList.toggle("hot", state.editsCount > 0);
+  actionNodes.editsBtn.toggleAttribute("disabled", state.editsCount === 0);
+}
+
+function actionButton(
+  label: string,
+  countRole: string | undefined,
+  onClick: () => void,
+  opts?: { shortcut?: string; title?: string },
+): { btn: HTMLButtonElement; count: HTMLElement | null } {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  if (opts?.title) btn.title = opts.title;
+  const text = document.createElement("span");
+  text.textContent = label;
+  btn.appendChild(text);
+  let countEl: HTMLElement | null = null;
+  if (countRole) {
+    countEl = document.createElement("span");
+    countEl.className = "count";
+    countEl.dataset.role = countRole;
+    countEl.textContent = "0";
+    btn.appendChild(countEl);
+  } else if (opts?.shortcut) {
+    const kbd = document.createElement("kbd");
+    kbd.className = "shortcut";
+    kbd.textContent = opts.shortcut;
+    btn.appendChild(kbd);
+  }
+  btn.addEventListener("click", () => {
+    if (btn.hasAttribute("disabled")) return;
+    onClick();
+  });
+  return { btn, count: countEl };
 }
 
 document.getElementById("openSettingsBtn")?.addEventListener("click", () => {
