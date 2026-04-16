@@ -1,13 +1,11 @@
 import { SegmentEntry, segmentsEqual, normalizeSegments } from "./segments";
 
 export interface PresetSettings {
-  enabled?: boolean;
   contextInjection?: boolean;
   statusLine?: boolean;
+  autoOpenModifiedFiles?: boolean;
   maxLines?: number;
-  debounceMs?: number;
   statusLineMaxPath?: number;
-  contextPrefix?: string;
   showPartialLineContext?: boolean;
 }
 
@@ -23,7 +21,7 @@ export const BUILT_IN_PRESETS: Record<string, Preset> = {
   minimal: {
     id: "minimal",
     label: "Minimal",
-    description: "Just the VS Code selection — everything else hidden.",
+    description: "Selection segment only. All other segments hidden.",
     settings: {
       contextInjection: true,
       statusLine: true,
@@ -33,76 +31,73 @@ export const BUILT_IN_PRESETS: Record<string, Preset> = {
       { id: "gitBranch", enabled: false },
       { id: "contextBar", enabled: false },
       { id: "contextPercentage", enabled: false },
+      { id: "tokensUsed", enabled: false },
       { id: "cost", enabled: false },
       { id: "linesChanged", enabled: false },
       { id: "rateLimits", enabled: false },
-      { id: "sessionDuration", enabled: false },
       { id: "selection", enabled: true },
     ],
   },
   default: {
     id: "default",
     label: "Default",
-    description: "Balanced defaults — model, branch, context bar, selection.",
+    description: "Model, branch, context bar, and selection.",
     settings: {
       contextInjection: true,
       statusLine: true,
       maxLines: 500,
-      debounceMs: 30,
     },
     segments: [
       { id: "model", enabled: true },
       { id: "gitBranch", enabled: true },
       { id: "contextBar", enabled: true },
       { id: "contextPercentage", enabled: true },
+      { id: "tokensUsed", enabled: false },
       { id: "cost", enabled: false },
       { id: "linesChanged", enabled: false },
       { id: "rateLimits", enabled: false },
-      { id: "sessionDuration", enabled: false },
       { id: "selection", enabled: true },
     ],
   },
   powerUser: {
     id: "powerUser",
     label: "Power user",
-    description: "Every segment enabled; larger selection buffer.",
+    description: "All segments enabled. Selection buffer raised to 1000 lines.",
     settings: {
       contextInjection: true,
       statusLine: true,
       maxLines: 1000,
-      debounceMs: 20,
     },
     segments: [
       { id: "model", enabled: true },
       { id: "gitBranch", enabled: true },
       { id: "contextBar", enabled: true },
       { id: "contextPercentage", enabled: true },
+      { id: "tokensUsed", enabled: true },
       { id: "cost", enabled: true },
       { id: "linesChanged", enabled: true },
       { id: "rateLimits", enabled: true },
-      { id: "sessionDuration", enabled: true },
       { id: "selection", enabled: true },
     ],
   },
   costConscious: {
     id: "costConscious",
     label: "Cost-conscious",
-    description: "Default plus cost and rate-limit visibility.",
+    description: "Adds cost and rate-limit segments to the default layout.",
     settings: {
       contextInjection: true,
       statusLine: true,
       maxLines: 500,
-      debounceMs: 30,
     },
     segments: [
       { id: "model", enabled: true },
       { id: "gitBranch", enabled: false },
       { id: "contextBar", enabled: true },
       { id: "contextPercentage", enabled: true },
+      { id: "tokensUsed", enabled: true },
       { id: "cost", enabled: true },
       { id: "linesChanged", enabled: false },
       { id: "rateLimits", enabled: true },
-      { id: "sessionDuration", enabled: false },
       { id: "selection", enabled: true },
     ],
   },

@@ -1,34 +1,30 @@
 <svg viewBox="0 0 960 240" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <linearGradient id="bbg" x1="0" y1="0" x2="960" y2="240" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#1A1F2E"/>
-      <stop offset="1" stop-color="#0B0E18"/>
+      <stop offset="0" stop-color="#1C1C1E"/>
+      <stop offset="1" stop-color="#111113"/>
     </linearGradient>
-    <radialGradient id="bglow" cx="480" cy="120" r="320" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#D97757" stop-opacity="0.14"/>
-      <stop offset="1" stop-color="#D97757" stop-opacity="0"/>
-    </radialGradient>
-    <radialGradient id="bglow2" cx="220" cy="120" r="200" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#5BC9FF" stop-opacity="0.10"/>
-      <stop offset="1" stop-color="#5BC9FF" stop-opacity="0"/>
-    </radialGradient>
   </defs>
 
   <rect width="960" height="240" fill="url(#bbg)"/>
-  <rect width="960" height="240" fill="url(#bglow)"/>
-  <rect width="960" height="240" fill="url(#bglow2)"/>
 
-  <!-- Bridge motif on the left -->
+  <!-- Bridge mark — white chevrons + terracotta spark. Thicker strokes so
+       the mark carries weight at the banner's 200-ish-pixel render size. -->
   <g transform="translate(80, 80)">
-    <path d="M40 0L0 40l40 40" stroke="#5BC9FF" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-    <path d="M120 0l40 40-40 40" stroke="#5BC9FF" stroke-width="9" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-    <path d="M80 12l7 22 22 6-22 6-7 22-7-22-22-6 22-6z" fill="#E88B6F"/>
+    <path d="M40 0L0 40l40 40" stroke="#F0F0EC" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path d="M120 0l40 40-40 40" stroke="#F0F0EC" stroke-width="12" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+    <path d="M80 10l7.5 23 23 7-23 7-7.5 23-7.5-23-23-7 23-7z" fill="#D97757"/>
   </g>
 
-  <!-- Wordmark -->
-  <text x="288" y="118" font-family="-apple-system, system-ui, 'Segoe UI', sans-serif" font-size="48" font-weight="700" fill="#F5F5F0" letter-spacing="-1">Claude Bridge</text>
-  <text x="290" y="156" font-family="-apple-system, system-ui, 'Segoe UI', sans-serif" font-size="18" font-weight="400" fill="#9CA3AF" letter-spacing="0.2">Your VS Code selection, instantly available to Claude CLI</text>
+  <!-- Wordmark — use Helvetica/Arial which resvg can resolve reliably, and
+       bump weight to 800 so the fallback doesn't render as a medium weight. -->
+  <text x="288" y="122"
+        font-family="Helvetica, Arial, sans-serif"
+        font-size="54" font-weight="800" fill="#F0F0EC" letter-spacing="-1.2">Claude Bridge</text>
+  <text x="290" y="162"
+        font-family="Helvetica, Arial, sans-serif"
+        font-size="19" font-weight="500" fill="#8A8F98" letter-spacing="0.1">Your VS Code selection, piped straight into Claude Code.</text>
 
-  <!-- Bottom rule -->
-  <rect x="0" y="238" width="960" height="2" fill="#5BC9FF" opacity="0.4"/>
+  <!-- Bottom accent line — pure terracotta. -->
+  <rect x="0" y="239" width="960" height="1" fill="#D97757" opacity="0.7"/>
 </svg>

@@ -1,14 +1,22 @@
 {
   "name": "claude-vscode-bridge",
-  "displayName": "Claude Code - VS Code Bridge",
-  "description": "Bridge your VS Code selections to Claude CLI in real time. Select code, ask Claude — it sees your selection automatically.",
-  "version": "2.0.0",
+  "displayName": "Claude Bridge",
+  "description": "Pipes your VS Code selection into Claude Code. Select code, ask a question — Claude sees it automatically.",
+  "version": "3.0.0",
   "publisher": "Daniel-Manea",
   "license": "MIT",
   "icon": "media/logo.png",
+  "galleryBanner": {
+    "color": "#1C1C1E",
+    "theme": "dark"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/Daniel-Manea/claude-vscode-bridge"
+  },
+  "homepage": "https://github.com/Daniel-Manea/claude-vscode-bridge#readme",
+  "bugs": {
+    "url": "https://github.com/Daniel-Manea/claude-vscode-bridge/issues"
   },
   "engines": {
     "vscode": "^1.85.0"
@@ -57,18 +65,28 @@
         "category": "Claude Bridge"
       },
       {
-        "command": "claude-bridge.setup",
-        "title": "Setup Claude Code Integration",
+        "command": "claude-bridge.install",
+        "title": "Install",
+        "category": "Claude Bridge"
+      },
+      {
+        "command": "claude-bridge.uninstall",
+        "title": "Uninstall",
+        "category": "Claude Bridge"
+      },
+      {
+        "command": "claude-bridge.clearWorkspaceOverrides",
+        "title": "Clear Workspace Overrides",
+        "category": "Claude Bridge"
+      },
+      {
+        "command": "claude-bridge.uninstallEverywhere",
+        "title": "Uninstall Claude Bridge (everywhere)",
         "category": "Claude Bridge"
       },
       {
         "command": "claude-bridge.preview",
         "title": "Preview Current Selection",
-        "category": "Claude Bridge"
-      },
-      {
-        "command": "claude-bridge.removeConfig",
-        "title": "Remove Claude Code Configuration",
         "category": "Claude Bridge"
       },
       {
@@ -86,6 +104,16 @@
         "command": "claude-bridge.importPreset",
         "title": "Import Preset from JSON",
         "category": "Claude Bridge"
+      },
+      {
+        "command": "claude-bridge.openDashboard",
+        "title": "Open Dashboard",
+        "category": "Claude Bridge"
+      },
+      {
+        "command": "claude-bridge.diagnoseAutoOpen",
+        "title": "Diagnose Auto-Open Edited Files",
+        "category": "Claude Bridge"
       }
     ],
     "menus": {
@@ -100,67 +128,97 @@
     "configuration": {
       "title": "Claude Bridge",
       "properties": {
-        "claudeBridge.enabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Enable or disable the selection bridge"
-        },
         "claudeBridge.contextInjection": {
           "type": "boolean",
           "default": true,
-          "description": "Automatically inject selected code into Claude's context on every message"
+          "description": "Inject the current selection into Claude Code's context on every prompt."
         },
         "claudeBridge.statusLine": {
           "type": "boolean",
           "default": true,
-          "description": "Show current selection in Claude CLI's status bar"
+          "description": "Render the full status line in Claude Code, including all enabled segments."
         },
-        "claudeBridge.autoSetup": {
+        "claudeBridge.autoOpenModifiedFiles": {
           "type": "boolean",
-          "default": true,
-          "description": "Automatically configure Claude Code settings.json on activation"
+          "default": false,
+          "description": "When Claude Code edits a file, open it automatically in VS Code."
         },
         "claudeBridge.maxLines": {
           "type": "number",
           "default": 500,
           "minimum": 1,
           "maximum": 5000,
-          "description": "Maximum number of selected lines to send to Claude (larger selections are truncated)"
-        },
-        "claudeBridge.debounceMs": {
-          "type": "number",
-          "default": 30,
-          "minimum": 10,
-          "maximum": 500,
-          "description": "Debounce delay in milliseconds before writing selection to disk"
+          "description": "Selections longer than this are truncated before being sent to Claude Code."
         },
         "claudeBridge.statusLineMaxPath": {
           "type": "number",
           "default": 30,
           "minimum": 10,
           "maximum": 100,
-          "description": "Maximum path length in status line before truncation (only used when path style is 'truncated')"
+          "description": "Max characters for file paths in the status line. Only applies when path style is Truncated."
         },
         "claudeBridge.statusLinePathStyle": {
           "type": "string",
           "default": "basename",
           "enum": ["basename", "truncated", "full"],
           "enumDescriptions": [
-            "Show only the file name (e.g., file.ts)",
-            "Show the relative path, truncated to Status Line Max Path (e.g., src/.../file.ts)",
-            "Show the full relative path (e.g., src/components/file.ts)"
+            "File name only — file.ts",
+            "Truncated relative path — src/.../file.ts",
+            "Full relative path — src/components/file.ts"
           ],
-          "description": "How file paths are formatted in the Claude CLI status line and the VS Code status bar"
+          "description": "How file paths appear in the status line and the VS Code status bar."
         },
-        "claudeBridge.contextPrefix": {
+        "claudeBridge.statusLineBarStyle": {
           "type": "string",
-          "default": "[VS Code Selection]",
-          "description": "Prefix shown before the file path in context injection"
+          "default": "blocks",
+          "enum": ["blocks", "squares", "shades", "dots"],
+          "enumDescriptions": [
+            "Full blocks: █ ░",
+            "Filled squares: ■ □",
+            "Light-shade blocks: ▓ ░",
+            "Filled dots: ● ○"
+          ],
+          "description": "Glyphs used for the context bar segment."
+        },
+        "claudeBridge.statusLineCompact": {
+          "type": "boolean",
+          "default": false,
+          "description": "Compact mode — replaces ' · ' separators with a single space. Tighter in narrow terminals."
         },
         "claudeBridge.showPartialLineContext": {
           "type": "boolean",
           "default": true,
-          "description": "For partial line selections, show the full line with caret markers"
+          "description": "For partial-line selections, include the full line with caret markers so Claude sees surrounding context."
+        },
+        "claudeBridge.excludedPatterns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [
+            "**/.env*",
+            "**/*.env",
+            "**/*.key",
+            "**/*.pem",
+            "**/*.p12",
+            "**/*.pfx",
+            "**/*.crt",
+            "**/*.keystore",
+            "**/.ssh/**",
+            "**/id_rsa*",
+            "**/id_ed25519*",
+            "**/id_ecdsa*",
+            "**/secrets/**",
+            "**/credentials/**",
+            "**/.aws/credentials",
+            "**/.aws/config",
+            "**/.npmrc",
+            "**/.htpasswd",
+            "**/.pypirc",
+            "**/.netrc",
+            "**/*.pgp",
+            "**/*.gpg",
+            "**/*.asc"
+          ],
+          "description": "Glob patterns for files whose selections should never be sent to Claude Code. Use to protect secrets, credentials, and keys. `*` matches a filename segment, `**` matches any depth."
         },
         "claudeBridge.statusLineSegments": {
           "type": "array",
@@ -169,13 +227,13 @@
             { "id": "gitBranch", "enabled": true },
             { "id": "contextBar", "enabled": true },
             { "id": "contextPercentage", "enabled": true },
+            { "id": "tokensUsed", "enabled": false },
             { "id": "cost", "enabled": false },
             { "id": "linesChanged", "enabled": false },
             { "id": "rateLimits", "enabled": false },
-            { "id": "sessionDuration", "enabled": false },
             { "id": "selection", "enabled": true }
           ],
-          "description": "Ordered list of status line segments. Edit via the Claude Bridge dashboard to reorder and toggle.",
+          "description": "Ordered list of status line segments. Use the dashboard to reorder and toggle.",
           "items": {
             "type": "object",
             "required": ["id", "enabled"],
@@ -184,6 +242,8 @@
                 "type": "string",
                 "enum": [
                   "model",
+                  "outputStyle",
+                  "thinking",
                   "gitBranch",
                   "contextBar",
                   "contextPercentage",
@@ -205,30 +265,13 @@
           "default": "default",
           "enum": ["minimal", "default", "powerUser", "costConscious", "custom"],
           "enumDescriptions": [
-            "Just the essentials: selection only",
-            "Balanced defaults: model, branch, context, selection",
-            "Everything on: all segments enabled",
-            "Adds cost and rate-limit visibility to the default preset",
-            "Your own configuration (set automatically when you tweak)"
+            "Selection only",
+            "Model, branch, context, and selection",
+            "All segments enabled, larger selection buffer",
+            "Default plus cost and rate-limit segments",
+            "Applied automatically when you change any setting"
           ],
-          "description": "Active preset. Picking a preset overwrites segment and behavior settings."
-        },
-        "claudeBridge.settingsTarget": {
-          "type": "string",
-          "default": "user",
-          "enum": [
-            "user",
-            "project",
-            "projectLocal",
-            "ask"
-          ],
-          "enumDescriptions": [
-            "~/.claude/settings.json — applies to all projects (recommended)",
-            ".claude/settings.json — project only, shared via git with team",
-            ".claude/settings.local.json — project only, gitignored",
-            "Ask me every time"
-          ],
-          "description": "Where to write Claude Code configuration"
+          "description": "Active preset. Applying a preset overwrites segment order and behavior settings."
         }
       }
     }
@@ -236,7 +279,8 @@
   "scripts": {
     "compile": "tsc -p ./ && tsc -p ./tsconfig.webview.json",
     "watch": "tsc -watch -p ./ & tsc -watch -p ./tsconfig.webview.json",
-    "package": "npm run compile && vsce package"
+    "package": "npm run compile && vsce package",
+    "test": "npm run compile && node --test out/tests/ && bash src/tests/statusline.test.sh"
   },
   "devDependencies": {
     "@types/vscode": "^1.85.0",

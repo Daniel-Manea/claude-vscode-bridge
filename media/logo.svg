@@ -1,18 +1,33 @@
 <svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
   <defs>
-    <linearGradient id="bg" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#1A1F2E"/>
-      <stop offset="1" stop-color="#0B0E18"/>
+    <linearGradient id="cbCircleBg" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1C1C1E"/>
+      <stop offset="1" stop-color="#0A0A0C"/>
     </linearGradient>
-    <radialGradient id="glow" cx="64" cy="64" r="56" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#D97757" stop-opacity="0.18"/>
+    <linearGradient id="cbRing" x1="0" y1="0" x2="128" y2="128" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#D97757" stop-opacity="0.95"/>
+      <stop offset="0.6" stop-color="#D97757" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#D97757" stop-opacity="0.1"/>
+    </linearGradient>
+    <radialGradient id="cbGlow" cx="64" cy="54" r="68" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#D97757" stop-opacity="0.22"/>
       <stop offset="1" stop-color="#D97757" stop-opacity="0"/>
     </radialGradient>
   </defs>
-  <rect width="128" height="128" fill="url(#bg)"/>
-  <rect width="128" height="128" fill="url(#glow)"/>
-  <path d="M40 28L16 64l24 36" stroke="#5BC9FF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-  <path d="M88 28l24 36-24 36" stroke="#5BC9FF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-  <path d="M64 38l5.8 19.4L89 64l-19.2 6.6L64 90l-5.8-19.4L39 64l19.2-6.6z" fill="#E88B6F"/>
-  <rect x="0.5" y="0.5" width="127" height="127" fill="none" stroke="#2B3245" stroke-width="1"/>
+
+  <!-- Circular medallion — the brand's visual shape.
+       Canvas corners stay transparent; rasterise with resvg (preserves
+       alpha) rather than qlmanage (fills alpha with white). -->
+  <circle cx="64" cy="64" r="62" fill="url(#cbCircleBg)"/>
+  <!-- Soft terracotta glow from the upper half. -->
+  <circle cx="64" cy="64" r="62" fill="url(#cbGlow)"/>
+  <!-- Terracotta ring signals the brand without competing with the mark. -->
+  <circle cx="64" cy="64" r="62" fill="none" stroke="url(#cbRing)" stroke-width="1.5"/>
+
+  <!-- < chevron — white. -->
+  <path d="M44 36L22 64 44 92" stroke="#F5F5F0" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- > chevron — white. -->
+  <path d="M84 36L106 64 84 92" stroke="#F5F5F0" stroke-width="7.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  <!-- Terracotta spark at the center. -->
+  <path d="M64 37l6.5 20.5 20.5 6.5-20.5 6.5-6.5 20.5-6.5-20.5-20.5-6.5 20.5-6.5z" fill="#D97757"/>
 </svg>

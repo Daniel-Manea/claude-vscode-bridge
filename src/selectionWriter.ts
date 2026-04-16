@@ -1,0 +1,635 @@
+// All selection-related work: watching the editor, serializing the selection
+// into the four bridge files, and cleaning up when the selection goes away or
+// the bridge is disabled.
+//
+// The writer owns its own module-scoped state (debounce timer, last-written
+// key, current selection) and exposes a tiny init() for the extension host
+// to wire up the status-bar item and a broadcast callback.
+
+import * as vscode from "vscode";
+import * as fs from "fs/promises";
+import { existsSync, readFileSync, statSync, unlinkSync, unwatchFile, watchFile } from "fs";
+import * as path from "path";
+
+import {
+  SELECTION_FILE,
+  CONTEXT_FILE,
+  CONTEXT_SENT_FILE,
+  STATUSLINE_FILE,
+  BRIDGE_FILES,
+} from "./paths";
+import { getConfig, isFileExcluded } from "./settings";
+import { normalizeSegments } from "./segments";
+import { SelectionInfo } from "./webview/messages";
+
+// --- Module state ---
+let debounceTimer: ReturnType<typeof setTimeout> | undefined;
+let lastSelectionKey = "";
+let currentSelection: SelectionInfo | null = null;
+let statusBarItem: vscode.StatusBarItem | undefined;
+let onSelectionChanged: (() => void) | undefined;
+let logFn: ((msg: string) => void) | undefined;
+let extensionVersion = "";
+// Injection tracking: the hook stores the mtime (in seconds) of the last
+// context.json it successfully delivered. We compare to our own last-write
+// mtime to show "pending" vs "delivered" in the tooltip.
+let lastContextMtimeSec: number | null = null;
+let lastSentMtimeSec: number | null = null;
+let injectionWatcherStarted = false;
+
+// --- Init / accessors ---
+
+export function initSelectionWriter(opts: {
+  statusBarItem: vscode.StatusBarItem;
+  version: string;
+  onChanged: () => void;
+  log?: (msg: string) => void;
+}): void {
+  statusBarItem = opts.statusBarItem;
+  extensionVersion = opts.version;
+  onSelectionChanged = opts.onChanged;
+  logFn = opts.log;
+  startInjectionWatcher();
+}
+
+/**
+ * Poll the sent-marker file. The Claude Code hook writes the mtime of the
+ * context file to this marker each time it successfully injects, so a change
+ * here means "Claude just saw the selection".
+ */
+function startInjectionWatcher(): void {
+  if (injectionWatcherStarted) return;
+  injectionWatcherStarted = true;
+  watchFile(CONTEXT_SENT_FILE, { interval: 400, persistent: false }, () => {
+    try {
+      if (!existsSync(CONTEXT_SENT_FILE)) {
+        lastSentMtimeSec = null;
+      } else {
+        const content = readFileSync(CONTEXT_SENT_FILE, "utf-8").trim();
+        const n = Number(content);
+        lastSentMtimeSec = Number.isFinite(n) ? n : null;
+      }
+      refreshStatusBar();
+      onSelectionChanged?.();
+    } catch (err) {
+      logFn?.(`injection watcher error: ${(err as Error).message}`);
+    }
+  });
+}
+
+/**
+ * Injection state — used by the tooltip and the dashboard. "pending" = we
+ * wrote a context file more recently than the hook has acknowledged.
+ * "delivered" = the hook has picked it up. "idle" = no selection / no inject.
+ */
+export type InjectionStatus =
+  | { kind: "idle" }
+  | { kind: "pending" }
+  | { kind: "delivered"; sinceSec: number };
+
+export function getInjectionStatus(): InjectionStatus {
+  if (lastContextMtimeSec === null) return { kind: "idle" };
+  if (lastSentMtimeSec === null || lastSentMtimeSec < lastContextMtimeSec) {
+    return { kind: "pending" };
+  }
+  const nowSec = Math.floor(Date.now() / 1000);
+  return { kind: "delivered", sinceSec: Math.max(0, nowSec - lastSentMtimeSec) };
+}
+
+function formatAgo(sec: number): string {
+  if (sec < 5) return "just now";
+  if (sec < 60) return `${sec}s ago`;
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
+  return `${Math.floor(sec / 3600)}h ${Math.floor((sec % 3600) / 60)}m ago`;
+}
+
+export function getCurrentSelection(): SelectionInfo | null {
+  return currentSelection;
+}
+
+export function resetSelectionDedupe(): void {
+  lastSelectionKey = "";
+}
+
+// --- File I/O ---
+
+export async function atomicWrite(filePath: string, content: string): Promise<void> {
+  const tmp = filePath + ".tmp";
+  await fs.writeFile(tmp, content, "utf-8");
+  await fs.rename(tmp, filePath);
+}
+
+export async function cleanupFiles(): Promise<void> {
+  lastSelectionKey = "";
+  lastContextMtimeSec = null;
+  lastSentMtimeSec = null;
+  await Promise.allSettled(
+    BRIDGE_FILES.flatMap((f) => [
+      fs.unlink(f).catch(() => {}),
+      fs.unlink(f + ".tmp").catch(() => {}),
+    ]),
+  );
+  updateStatusBarItem(null);
+  currentSelection = null;
+  onSelectionChanged?.();
+}
+
+export function cleanupFilesSync(): void {
+  lastSelectionKey = "";
+  for (const f of BRIDGE_FILES) {
+    try {
+      if (existsSync(f)) unlinkSync(f);
+    } catch (err) {
+      logFn?.(`cleanupFilesSync unlink(${path.basename(f)}): ${(err as Error).message}`);
+    }
+    try {
+      if (existsSync(f + ".tmp")) unlinkSync(f + ".tmp");
+    } catch (err) {
+      logFn?.(`cleanupFilesSync unlink(${path.basename(f)}.tmp): ${(err as Error).message}`);
+    }
+  }
+}
+
+// --- Status bar item ---
+
+// Colored bullet — tints shift with injection state so the icon tells you
+// at a glance whether Claude has actually received your selection:
+//   green  → delivered (hook picked it up)
+//   yellow → pending (we wrote the files; the next Claude prompt will inject)
+//   idle   → no selection (shows the link codicon only)
+//   warn   → bridge master toggle is off
+const DOT = "\u25CF";
+
+function updateStatusBarItem(info: { path: string; lines: string } | null): void {
+  if (!statusBarItem) return;
+
+  const cfg = getConfig();
+  const contextOn = cfg.get<boolean>("contextInjection", true);
+
+  if (info) {
+    const status = getInjectionStatus();
+    if (!contextOn) {
+      // Selection exists but context injection is off — mark it muted so the
+      // user sees "this selection won't reach Claude until you toggle on".
+      statusBarItem.text = `$(circle-slash) ${info.path} ${info.lines}`;
+      statusBarItem.color = new vscode.ThemeColor("descriptionForeground");
+    } else if (status.kind === "pending") {
+      statusBarItem.text = `${DOT} ${info.path} ${info.lines}`;
+      statusBarItem.color = new vscode.ThemeColor("charts.yellow");
+    } else {
+      statusBarItem.text = `${DOT} ${info.path} ${info.lines}`;
+      statusBarItem.color = new vscode.ThemeColor("testing.iconPassed");
+    }
+  } else {
+    statusBarItem.text = contextOn
+      ? "$(link) Claude Bridge"
+      : "$(circle-slash) Claude Bridge";
+    statusBarItem.color = contextOn
+      ? undefined
+      : new vscode.ThemeColor("descriptionForeground");
+  }
+
+  statusBarItem.tooltip = buildTooltip(info);
+  statusBarItem.show();
+}
+
+function buildTooltip(_info: { path: string; lines: string } | null): vscode.MarkdownString {
+  const cfg = getConfig();
+  const contextInjection = cfg.get<boolean>("contextInjection", true);
+  const statusLine = cfg.get<boolean>("statusLine", true);
+  const autoOpen = cfg.get<boolean>("autoOpenModifiedFiles", false);
+
+  const md = new vscode.MarkdownString();
+  md.isTrusted = true;
+  md.supportHtml = true;
+  md.supportThemeIcons = true;
+
+  // Colored bullet — shared by header dots and per-feature rows.
+  const dot = (on: boolean): string =>
+    on
+      ? '<span style="color:#73C991;">\u25CF</span>'
+      : '<span style="color:#F14C4C;">\u25CF</span>';
+  const muted = (s: string): string => `*${s}*`;
+
+  // Brand mark as an inline data-URI SVG — the chevrons inherit theme fg,
+  // the spark stays terracotta.
+  const svgMark =
+    '<svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">' +
+    '<path d="M8 6.5L3.5 12 8 17.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/>' +
+    '<path d="M16 6.5L20.5 12 16 17.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/>' +
+    '<path d="M12 7.5l1 3.5 3.5 1-3.5 1-1 3.5-1-3.5-3.5-1 3.5-1z" fill="#D97757"/>' +
+    "</svg>";
+  const svgDataUri = `data:image/svg+xml;base64,${Buffer.from(svgMark).toString("base64")}`;
+
+  // Header.
+  md.appendMarkdown(
+    `<img src="${svgDataUri}" alt="" width="16" height="16">&nbsp;&nbsp;**Claude Bridge**&nbsp;&nbsp;${muted("v" + extensionVersion)}\n\n`,
+  );
+
+  // Feature matrix — three rows, compact.
+  md.appendMarkdown(`${dot(contextInjection)}&nbsp;&nbsp;Context injection&nbsp;&nbsp;${muted(contextInjection ? "on" : "off")}\n\n`);
+  md.appendMarkdown(`${dot(statusLine)}&nbsp;&nbsp;Status line&nbsp;&nbsp;${muted(statusLine ? "on" : "off")}\n\n`);
+  md.appendMarkdown(`${dot(autoOpen)}&nbsp;&nbsp;Auto-open edited files&nbsp;&nbsp;${muted(autoOpen ? "on" : "off")}\n\n`);
+
+  if (currentSelection) {
+    md.appendMarkdown("---\n\n");
+    md.appendMarkdown(`${muted("SELECTION")}\n\n`);
+    md.appendMarkdown("`" + currentSelection.relativePath + "`\n\n");
+    const range = currentSelection.isPartial
+      ? `line ${currentSelection.startLine}`
+      : `lines ${currentSelection.startLine}\u2013${currentSelection.endLine} \u00B7 ${currentSelection.lineCount} lines`;
+    md.appendMarkdown(`${muted(range)}\n\n`);
+
+    if (contextInjection) {
+      const status = getInjectionStatus();
+      if (status.kind === "pending") {
+        md.appendMarkdown(
+          `<span style="color:#E2B93B;">\u25CF</span>&nbsp;&nbsp;${muted("Queued \u2014 will inject on your next Claude Code prompt.")}\n\n`,
+        );
+      } else if (status.kind === "delivered") {
+        md.appendMarkdown(
+          `<span style="color:#73C991;">\u25CF</span>&nbsp;&nbsp;${muted(
+            `Delivered ${formatAgo(status.sinceSec)}. Won't re-inject until the selection changes.`,
+          )}\n\n`,
+        );
+      }
+    } else {
+      md.appendMarkdown(
+        `<span style="color:#F14C4C;">\u25CF</span>&nbsp;&nbsp;${muted("Context injection is off \u2014 Claude won't see this selection.")}\n\n`,
+      );
+    }
+    md.appendMarkdown(`[Clear selection](command:claude-bridge.clearSelection)&nbsp;&nbsp;\u00B7&nbsp;&nbsp;[Preview](command:claude-bridge.preview)\n\n`);
+  } else {
+    md.appendMarkdown("---\n\n");
+    md.appendMarkdown(`${muted("Select code in the editor to pipe it to Claude Code.")}\n\n`);
+  }
+
+  md.appendMarkdown("---\n\n");
+  md.appendMarkdown(
+    "[Dashboard](command:claude-bridge.openDashboard)&nbsp;&nbsp;\u00B7&nbsp;&nbsp;" +
+      "[Full settings](command:claude-bridge.openSettings)\n\n" +
+      muted("Click the status-bar item to open the dashboard."),
+  );
+
+  return md;
+}
+
+/**
+ * Recompute the status-bar text + tooltip without moving the selection cursor.
+ * Called from the extension's configuration-change listener so the bar
+ * reflects toggle changes immediately.
+ */
+export function refreshStatusBar(): void {
+  if (!statusBarItem) return;
+  const cfg = getConfig();
+  if (!currentSelection) {
+    updateStatusBarItem(null);
+    return;
+  }
+  // Rebuild the info block from the stashed selection.
+  const maxPath = cfg.get<number>("statusLineMaxPath", 30);
+  const pathStyle = cfg.get<string>("statusLinePathStyle", "basename");
+  const displayPath = formatPath(currentSelection.relativePath, pathStyle, maxPath);
+  const lineRef = currentSelection.isPartial
+    ? `L${currentSelection.startLine}`
+    : `L${currentSelection.startLine}\u2013${currentSelection.endLine}`;
+  updateStatusBarItem({ path: displayPath, lines: lineRef });
+}
+
+// --- Path formatting ---
+
+function truncatePath(relativePath: string, maxLen: number): string {
+  if (relativePath.length <= maxLen) return relativePath;
+  const fileName = path.basename(relativePath);
+  const available = maxLen - fileName.length - 3;
+  return available > 0
+    ? relativePath.slice(0, available) + "..." + fileName
+    : "..." + fileName;
+}
+
+function formatPath(relativePath: string, style: string, maxLen: number): string {
+  switch (style) {
+    case "basename":
+      return path.basename(relativePath);
+    case "full":
+      return relativePath;
+    case "truncated":
+    default:
+      return truncatePath(relativePath, maxLen);
+  }
+}
+
+// --- Context + status-line string builders ---
+
+function buildContext(
+  relativePath: string,
+  startLine: number,
+  endLine: number,
+  lineCount: number,
+  text: string,
+  fullLine: string | null,
+  startChar: number,
+  endChar: number,
+): string {
+  const cfg = getConfig();
+  const showPartial = cfg.get<boolean>("showPartialLineContext", true);
+
+  if (fullLine !== null && showPartial) {
+    const marker = " ".repeat(startChar) + "^".repeat(endChar - startChar);
+    return (
+      `${relativePath}#L${startLine} (partial)\n` +
+      `\`\`\`\n${fullLine}\n${marker}\n\`\`\`\n` +
+      `Selected text: "${text}"`
+    );
+  }
+  return (
+    `${relativePath}:${startLine}-${endLine} (${lineCount} lines)\n` +
+    `\`\`\`\n${text}\n\`\`\``
+  );
+}
+
+function buildSelectionStatusLine(
+  relativePath: string,
+  absolutePath: string,
+  startLine: number,
+  endLine: number,
+  lineCount: number,
+  isPartial: boolean,
+): string {
+  const cfg = getConfig();
+  const maxPath = cfg.get<number>("statusLineMaxPath", 30);
+  const pathStyle = cfg.get<string>("statusLinePathStyle", "basename");
+
+  const DIM = "\x1b[2m";
+  const BOLD = "\x1b[1m";
+  const RESET = "\x1b[0m";
+  // Brand terracotta — ties this segment to the extension's identity.
+  const OR = "\x1b[38;2;217;119;87m";
+
+  const displayPath = formatPath(relativePath, pathStyle, maxPath);
+  const lineRef = isPartial ? `L${startLine}` : `L${startLine}\u2013${endLine}`;
+  const countLabel = isPartial ? "(selection)" : `(${lineCount})`;
+
+  const uri = `vscode://file${absolutePath}:${startLine}:1`;
+  const filePart = `${OR}${BOLD}${displayPath}${RESET}`;
+  const linePart = `${OR}${lineRef}${RESET}`;
+  // Wrap the clickable text in the OSC 8 hyperlink sequence so terminals that
+  // support it (iTerm2, recent macOS Terminal, WezTerm) open the file in VS Code.
+  const link = `\x1b]8;;${uri}\x07${filePart} ${linePart}\x1b]8;;\x07`;
+
+  return `${link} ${DIM}${countLabel}${RESET}`;
+}
+
+// --- Preview ---
+
+export function previewSelection(): void {
+  const editor = vscode.window.activeTextEditor;
+  if (!editor || editor.selection.isEmpty) {
+    vscode.window.showInformationMessage("Claude Bridge: no selection.");
+    return;
+  }
+
+  const selection = editor.selection;
+  const text = editor.document.getText(selection);
+  if (text.trim().length === 0) {
+    vscode.window.showInformationMessage("Claude Bridge: selection is whitespace-only.");
+    return;
+  }
+
+  const workspaceFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
+  const absolutePath = editor.document.uri.fsPath;
+  const relativePath = workspaceFolder
+    ? path.relative(workspaceFolder.uri.fsPath, absolutePath)
+    : path.basename(absolutePath);
+
+  const startLine = selection.start.line + 1;
+  const endLine = selection.end.line + 1;
+  const lineCount = endLine - startLine + 1;
+  const isSingleLine = selection.start.line === selection.end.line;
+  const fullLineText = isSingleLine
+    ? editor.document.lineAt(selection.start.line).text
+    : null;
+  const isPartial =
+    isSingleLine && fullLineText !== null && text !== fullLineText.trim();
+
+  const context = buildContext(
+    relativePath,
+    startLine,
+    endLine,
+    lineCount,
+    text,
+    isPartial ? fullLineText : null,
+    selection.start.character,
+    selection.end.character,
+  );
+
+  const maxPath = getConfig().get<number>("statusLineMaxPath", 30);
+  const pathStyle = getConfig().get<string>("statusLinePathStyle", "basename");
+  const displayPath = formatPath(relativePath, pathStyle, maxPath);
+  const lineRef = isPartial ? `#L${startLine}` : `#${startLine}-${endLine}`;
+
+  const panel = vscode.window.createOutputChannel("Claude Bridge: Preview");
+  panel.clear();
+  panel.appendLine("=== Context injection (what Claude Code receives) ===");
+  panel.appendLine("");
+  panel.appendLine(context);
+  panel.appendLine("");
+  panel.appendLine("=== Status line (selection segment) ===");
+  panel.appendLine(
+    `@${displayPath}${lineRef} ${isPartial ? "(selection)" : `(${lineCount} lines)`}`,
+  );
+  panel.appendLine("");
+  panel.appendLine("=== Segment order ===");
+  const segments = normalizeSegments(getConfig().get("statusLineSegments"));
+  for (const s of segments) {
+    panel.appendLine(`  ${s.enabled ? "[x]" : "[ ]"} ${s.id}`);
+  }
+  panel.show();
+}
+
+// --- Main entry point ---
+
+export function writeSelection(editor: vscode.TextEditor | undefined): void {
+  const cfg = getConfig();
+
+  // Skip non-file editors immediately — output channels, terminals, and
+  // other pseudo-editors should never produce bridge files. This also
+  // prevents a feedback loop where our own Output channel triggers events.
+  if (editor && editor.document.uri.scheme !== "file") {
+    return;
+  }
+
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+  }
+
+  // Hard-coded minimum — always aim for speed. 10ms is just enough to coalesce
+  // VS Code's selection-change events that fire multiple times per key press.
+  const debounceMs = 10;
+
+  debounceTimer = setTimeout(async () => {
+    try {
+      if (!editor || editor.selection.isEmpty) {
+        await cleanupFiles();
+        return;
+      }
+
+      // Only process file-backed editors — skip output channels, terminals,
+      // notebook cells, and other pseudo-editors. This also prevents a
+      // feedback loop where logging to the Output channel triggers another
+      // selection-change event.
+      if (editor.document.uri.scheme !== "file") {
+        return;
+      }
+
+      // Safety net: if the file matches any excluded pattern (env files,
+      // keys, secrets, etc.) the extension writes nothing — Claude Code
+      // never sees the selection.
+      if (isFileExcluded(editor.document.uri.fsPath)) {
+        await cleanupFiles();
+        return;
+      }
+
+      const selection = editor.selection;
+      let text = editor.document.getText(selection);
+
+      if (text.trim().length === 0) {
+        await cleanupFiles();
+        return;
+      }
+
+      const workspaceFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
+      const absolutePath = editor.document.uri.fsPath;
+      const relativePath = workspaceFolder
+        ? path.relative(workspaceFolder.uri.fsPath, absolutePath)
+        : path.basename(absolutePath);
+
+      const startLine = selection.start.line + 1;
+      const endLine = selection.end.line + 1;
+      let lineCount = endLine - startLine + 1;
+
+      const maxLines = cfg.get<number>("maxLines", 500);
+      if (lineCount > maxLines) {
+        const lines = text.split("\n");
+        text =
+          lines.slice(0, maxLines).join("\n") +
+          `\n... (truncated, ${lineCount - maxLines} more lines)`;
+        lineCount = maxLines;
+      }
+
+      const key = `${absolutePath}:${selection.start.line}:${selection.start.character}-${selection.end.line}:${selection.end.character}`;
+      if (key === lastSelectionKey) return;
+      lastSelectionKey = key;
+
+      const isSingleLine = selection.start.line === selection.end.line;
+      const fullLineText = isSingleLine
+        ? editor.document.lineAt(selection.start.line).text
+        : null;
+      const isPartial =
+        isSingleLine && fullLineText !== null && text !== fullLineText.trim();
+
+      const writes: Promise<void>[] = [];
+
+      writes.push(
+        atomicWrite(
+          SELECTION_FILE,
+          JSON.stringify({
+            file: absolutePath,
+            relativePath,
+            startLine,
+            endLine,
+            lineCount,
+            text,
+            isPartial,
+            fullLine: fullLineText,
+            startChar: selection.start.character,
+            endChar: selection.end.character,
+            timestamp: Date.now(),
+          }),
+        ),
+      );
+
+      if (cfg.get<boolean>("contextInjection", true)) {
+        const contextStr = buildContext(
+          relativePath,
+          startLine,
+          endLine,
+          lineCount,
+          text,
+          isPartial ? fullLineText : null,
+          selection.start.character,
+          selection.end.character,
+        );
+        writes.push(
+          atomicWrite(
+            CONTEXT_FILE,
+            JSON.stringify({
+              hookSpecificOutput: {
+                hookEventName: "UserPromptSubmit",
+                additionalContext: contextStr,
+              },
+            }),
+          ),
+        );
+      }
+
+      if (cfg.get<boolean>("statusLine", true)) {
+        writes.push(
+          atomicWrite(
+            STATUSLINE_FILE,
+            buildSelectionStatusLine(
+              relativePath,
+              absolutePath,
+              startLine,
+              endLine,
+              lineCount,
+              isPartial,
+            ),
+          ),
+        );
+      }
+
+      await Promise.all(writes);
+
+      // Capture the mtime of the context file we just wrote so the tooltip
+      // can show "pending injection" until the hook catches up.
+      if (cfg.get<boolean>("contextInjection", true) && existsSync(CONTEXT_FILE)) {
+        try {
+          lastContextMtimeSec = Math.floor(statSync(CONTEXT_FILE).mtimeMs / 1000);
+        } catch {
+          /* stat failed — leave the state alone */
+        }
+      }
+
+      currentSelection = {
+        relativePath,
+        startLine,
+        endLine,
+        lineCount,
+        isPartial,
+      };
+
+      const maxPath = cfg.get<number>("statusLineMaxPath", 30);
+      const pathStyle = cfg.get<string>("statusLinePathStyle", "basename");
+      const displayPath = formatPath(relativePath, pathStyle, maxPath);
+      const lineRef = isPartial ? `L${startLine}` : `L${startLine}\u2013${endLine}`;
+      updateStatusBarItem({ path: displayPath, lines: lineRef });
+
+      onSelectionChanged?.();
+    } catch (err) {
+      logFn?.(`writeSelection error: ${(err as Error).message}`);
+    }
+  }, debounceMs);
+}
+
+export function disposeDebounce(): void {
+  if (debounceTimer) clearTimeout(debounceTimer);
+  if (injectionWatcherStarted) {
+    try {
+      unwatchFile(CONTEXT_SENT_FILE);
+    } catch {
+      /* noop */
+    }
+    injectionWatcherStarted = false;
+  }
+}

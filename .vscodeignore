@@ -6,3 +6,6 @@ tsconfig.webview.json
 **/*.map
 webview/**/*.ts
 *.vsix
+out/tests/**
+design-preview.html
+PLAN.md

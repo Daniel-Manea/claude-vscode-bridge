@@ -4,6 +4,170 @@ All notable changes to **Claude Bridge** are documented here. The format follows
 
 ---
 
+## 3.0.0
+
+Full v3 brand + performance rewrite. Most visible changes land in the status-line script, the sidebar dashboard, and the settings panel.
+
+### Added
+
+- **Brand mark on the status line.** Every rendered line opens with a dim terracotta `✱` so you can tell at a glance which line is Claude Bridge's.
+- **Terracotta separator** between segments — subtle, constant brand presence.
+- **High-context warning.** `⚠` appears before the bar / percentage when context usage reaches 90 %.
+- **Branch hyperlink.** The git-branch segment becomes an OSC-8 clickable link to the remote tree page for GitHub / GitLab / Bitbucket repos. Supporting terminals (iTerm, WezTerm, recent macOS Terminal) make it clickable.
+- **`claudeBridge.statusLineBarStyle`** — context-bar glyphs: `blocks` (█░, default), `squares` (■□), `shades` (▓░), or `dots` (●○). Live preview follows the choice.
+- **`claudeBridge.statusLineCompact`** — drops the separators between segments for tighter rendering in narrow terminals.
+- **`tokensUsed` segment.** Sums `context_window.total_input_tokens + total_output_tokens` and renders as a compact `45k` / `1.2m`.
+- **Max Lines preview** in the settings panel showing a mock truncated selection so the limit is tangible.
+- **Partial-line preview** showing exactly what Claude receives with the toggle on vs. off.
+- **Status-bar item reacts to injection state.** Dot goes green when the hook has delivered the selection, yellow while pending, `circle-slash` when context injection is turned off — you see at a glance whether your selection has actually reached Claude.
+- **Perf instrumentation** on both webviews. Every state broadcast logs `perf sidebar.render <ms>` / `perf settings.render <ms>` to the *Claude Bridge* output channel.
+
+### Changed — performance
+
+- **Status-line script: ~160 ms → ~10 ms per run.** Eliminated the ~100 ms `git status --porcelain` fork by reading `.git/HEAD` directly, and replaced every `jf` / `jn` / `jnested` grep/sed/tr pipeline (~50 forks) with bash built-in regex via `[[ =~ ]]`. Trade-off: no dirty marker / ahead-behind on the branch.
+- **Webview diff-render.** Hot sections (master toggles, preset pills, segment list) build their DOM once and mutate existing nodes on subsequent state broadcasts. No more full-tree rebuilds on every toggle click.
+- **`refreshInterval: 1`** (from `1000`) so segment toggles land in the status line on the next Claude tick.
+- **`<link rel="preload">`** on the shared tokens stylesheet in both webview HTMLs.
+
+### Changed — UX
+
+- **Single install scope — user only.** The project- and project-local install paths, the marker-file mutex, and the hook-command variants are gone. `claudeSettings.ts` is ~230 LoC (was ~530).
+- **Workspace-scope override plumbing removed.** Every `claudeBridge.*` setting now writes to Global. The sticky Global/Workspace switcher and the "Clear workspace overrides" button are gone.
+- **Presets are dropdowns again** (both webviews). Pills took too much width.
+- **`contextBar` and `contextPercentage` are independent.** Disabling the bar no longer hides the percentage, and vice-versa.
+- **Context injection card gets visible spacing.** Wrapper divs inside cards (`#context-fields`, `#master-rows`, …) render as flex columns with `var(--cb-space-4)` gap so subsections don't butt up against each other.
+- **Settings panel trimmed.** Removed the Danger Zone (redundant with the Install card's Uninstall button), the install-locations grid (user-only now), and the two-toggle redundancy on auto-open.
+- **Sidebar trimmed.** Removed the compact install badge at the bottom — "Manage ›" duplicated the footer's "Open full settings". Empty `#setupSection` collapses so there's no phantom gap under the header.
+- **Toggle rows centered** on their label + description stack. Matches segment rows.
+- **Notifications normalized** to `Claude Bridge: <past-tense verb> <object>.`
+- **Activity-bar icon** chevrons pushed to the edges of the 24×24 canvas, strokes thickened to 2.1 px so the mark holds its own next to built-in codicons.
+
+### Changed — brand
+
+- **Logo redesigned.** Circular medallion in a dark-gradient badge with a thin terracotta ring; white chevrons + terracotta spark inside. PNG rendered with `@resvg/resvg-js` to preserve alpha.
+- **Banner redesigned.** Dropped cyan in favour of white chevrons. Thicker strokes (12 px) + heavier wordmark (54 px / 800) so the mark carries weight.
+- **`galleryBanner`** set in `package.json` (`#1C1C1E`, dark theme) so the marketplace listing header matches the brand.
+- **README rewritten** — minimal, text-only, no external badge dependencies.
+- **New design spec.** `PLAN.md` is the source of truth for the brand and design system; `design-preview.html` is the live browser-renderable version of every component.
+
+### Removed
+
+- `outputStyle`, `thinking`, `sessionDuration` segments (Claude Code doesn't emit the underlying data, so they were always empty).
+- Settings keys: `enabled`, `settingsTarget`, `debounceMs`, `contextPrefix`, `autoSetup` were already deprecated in v2.x and are now fully gone.
+- Commands: `claudeBridge.installAt`, `claudeBridge.uninstallAt`, `claudeBridge.clearProjectOverrides` replaced by the single `install` / `uninstall` / (no workspace-overrides command) pair.
+
+### Fixed
+
+- **Statusline title flicker.** Script runs in ~10 ms so macOS Terminal's "current foreground process" display no longer flashes `bash ↔ claude` several times per second.
+- **Cost segment disappearing when tokens were enabled.** `visible_width` was byte-counting UTF-8 characters, over-reporting width and tripping truncation. Swapped to locale-aware `wc -m`.
+- **Context-bar / % truncation needle.** The old `"m "` truncation needle was matching ANSI reset escapes and silently dropping unrelated segments. Removed.
+- **BSD sed `\x1b` escape.** macOS `sed` doesn't interpret hex escapes in patterns; we pass real escape bytes via `$'…'` now.
+- **Spurious toast storm on config change.** The "Restart Claude Code" notification no longer fires on self-heal / auto-install paths.
+
+### Breaking
+
+- Multi-scope install (project / project-local) is removed. Existing project-scope installs keep working — the hooks stay on disk — but the UI no longer manages new project installs. *Uninstall Everywhere* still cleans them.
+- `claudeBridge.statusLineSegments` no longer accepts `outputStyle`, `thinking`, or `sessionDuration`. Those entries are silently dropped on load.
+
+---
+
+## 2.3.0
+
+Three independent install scopes, marker-file mutex, dim-over-hide, and a proper Installations card.
+
+### Added
+
+- **Three install scopes, independently managed.** *User* (`~/.claude/settings.json`), *Project* (`<folder>/.claude/settings.json`, git-shared), and *Project local* (`<folder>/.claude/settings.local.json`, gitignored). Each row in the Installations card has its own Install / Uninstall button and live status dot.
+- **Marker-file mutex.** The user-scope hook checks for `<folder>/.claude/.claude-bridge-marker` and exits early when a project-scope install is present — so you never get double-fire. Uninstalling the project-scope install removes the marker and the user scope resumes firing.
+- **Recommended tag** on the User scope with a one-liner explaining when each scope makes sense.
+- **Multi-root workspace folder picker** on Project-scope installs: clicking Install surfaces a QuickPick with every open folder.
+- **Uninstall Claude Bridge (everywhere)** command — nukes every install location, clears all VS Code-scope preferences, resets the welcome state. Opt-in via the command palette.
+
+### Changed
+
+- **Disabled ≠ hidden.** Sections whose prerequisites are off (Bridge disabled, Status line off, etc.) dim and become non-interactive instead of vanishing. Each dimmed section shows a tiny reason hint in the top-right so users understand what to enable to make it work.
+- **Sidebar shows compact install status.** First-run renders *Install for all projects* + *Other install options…*. After install, a badge summarizes which scopes are active with a *Manage installations* link to the full panel.
+- **Installations section** replaces the old "Setup" one-click card in the full settings panel.
+- `refreshInterval` for the Claude Code statusLine switched from `1` (1 ms, terminal tab thrash) to `1000` (1 s).
+
+### Fixed
+
+- **Bridge toggle now respects existing scope.** If a workspace-scope value was defined, toggling no longer silently writes to Global where it got shadowed. Writes land at the scope where the value is defined unless the webview explicitly picks one.
+- **Settings.local.json migration is surgical** — it only strips our own stale entries during scope migration, never custom hooks other extensions put there.
+
+---
+
+## 2.2.0
+
+The setup story is now **install once, customize per project**.
+
+### Changed — setup flow
+
+- **Single-install model.** Setup is one click: installs the hook and status-line script in `~/.claude/settings.json`. No more picking between *User / Project / Project local / Ask*.
+- **Per-project customization via VS Code settings.** Every `claudeBridge.*` preference can be overridden at the workspace level using VS Code's native settings layering. Workspace values take precedence over user defaults automatically — no hook double-fire, no overlap.
+- **Injection indicator in the status-bar tooltip.** The hook marks each selection as *Delivered* or *Queued*. Hover the status-bar item to see exactly what Claude Code has or has not yet picked up.
+- **Session-duration segment now also shows seconds** for very short sessions (previously silent under one minute).
+- **Output style + Thinking segments** added (off by default). Output Style reads `output_style.name` from Claude Code's statusline JSON; Thinking probes `thinking` / `reasoning_effort` / `thinking_level`.
+
+### Removed
+
+- `claudeBridge.settingsTarget` — no longer meaningful.
+- `claudeBridge.settingsTargetFolder` — no longer needed.
+- `claudeBridge.autoSetup` — replaced by the one-click install button.
+- Old commands: *Set Up Claude Code Integration*, *Remove Claude Code Configuration*.
+
+### Added
+
+- **Commands:** *Install Claude Bridge*, *Clear Project Overrides*, *Uninstall Claude Bridge*, *Diagnose Auto-Open Edited Files*.
+- **Project-aware remove.** Uninstall scans every possible settings path (user-level and every open workspace folder's `.claude/` pair) and only strips the bridge's own entries — other hooks and settings you have there are preserved.
+- **Migration safety.** Existing users with an install already present in `~/.claude/settings.json` are detected on activate and skipped past the welcome.
+
+### Notifications
+
+- Every change the extension makes to Claude's `settings.json` surfaces as a bottom-right notification describing exactly what was added or removed and where. No silent background writes.
+
+---
+
+## 2.1.0
+
+End-to-end design pass and a handful of overdue architecture fixes.
+
+### Added
+
+- **New brand identity.** Refined activity-bar icon and marketplace logo (tighter chevrons + an 8-point spark in Claude terracotta). New banner in terracotta → cyan.
+- **Shared design tokens.** Sidebar and full settings panel now draw from one token file — spacing, radii, motion, and the brand accent are defined once and inherited.
+- **Status bar item redesign.** Always visible. Three states: *Bridge off* (dim), *Ready*, and *file · L12–45*. Click opens the dashboard. Rich tooltip shows per-feature state dots and command links (Open dashboard · Preview · Toggle bridge · Settings).
+- **Status line polish.**
+  - Selection segment rebranded to terracotta; the verbose `[VS Code Selection]` prefix is gone.
+  - Cost rounded to 2 decimals.
+  - Lines-changed split — additions in green, removals in red.
+  - Git branch gains a dirty marker (`main*`) and ahead/behind indicators (`↑2 ↓1`).
+  - Context-% color now matches the bar color.
+  - Separator is a subtler dim `·`.
+  - Smart truncation drops secondary segments when the terminal is narrow.
+- **Commands.** *Claude Bridge: Open Dashboard* and *Claude Bridge: Toggle Bridge On/Off* join the palette; the latter powers the tooltip link.
+- **Test suite.** Pure-function tests for `segments.ts` and `presets.ts`, plus a bash test that exercises the status-line parsers and segment markers. Run with `npm test`.
+
+### Changed
+
+- **`displayName`** is now `Claude Bridge` (was `Claude Code - VS Code Bridge`).
+- **Top-level toggles** (*Bridge*, *Context injection*, *Status line*) now act as true master switches: flipping one off *removes* the corresponding entry from Claude Code's `settings.json`, not just the bridge's on-disk files.
+- **Configuration target.** `cfg.update` now writes at the scope where a setting is actually defined (workspace-level overrides are no longer silently shadowed by writes to Global).
+- **Configuration-change handler** is debounced 50 ms so applying a preset collapses ~8 sequential updates into a single sync cycle.
+- **Error handling.** The silent `catch {}` blocks are gone — errors land in the *Claude Bridge* output channel.
+- **Copy pass.** Every user-facing string — command titles, setting descriptions, segment labels, toasts, README — rewritten for consistency and clarity. Standardised on *Claude Code* (not "Claude CLI") throughout.
+
+### Removed
+
+- `media/logo.png` regenerated from the new SVG; `media/banner.png` compressed from 409 KB to 50 KB.
+
+### Internal
+
+- `extension.ts` split into cohesive modules: `paths.ts`, `settings.ts`, `statusLineScript.ts`, `claudeSettings.ts`, `selectionWriter.ts`. Down from 1,080 lines in one file to ~400 in the orchestrator plus peer modules.
+- Shared webview code (types + drag-and-drop + nonce) extracted to `webview/shared/` and `src/webview/nonce.ts`.
+
+---
+
 ## 2.0.0
 
 A redesigned configuration experience for Claude Bridge.

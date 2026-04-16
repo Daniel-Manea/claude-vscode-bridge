@@ -1,205 +1,312 @@
-// Claude Bridge sidebar webview controller.
-// Compiled standalone; does not share modules with the extension side.
-export {};
+// Claude Bridge sidebar dashboard controller (v3).
+// Compiled standalone; shares only types + DOM helpers with the settings
+// panel bundle via webview/shared/*.
+//
+// Diff-render: hot sections (toggles, preset pills, segment list) build
+// their DOM once and mutate existing nodes on subsequent state broadcasts.
+// Cold sections (brand, first-run card, install badge) rebuild as before.
 
-interface SegmentEntry {
-  id: string;
-  enabled: boolean;
-}
-interface SegmentMeta {
-  id: string;
-  label: string;
-  description: string;
-  example: string;
-}
-interface PresetSummary {
-  id: string;
-  label: string;
-  description: string;
-}
-interface State {
-  version: string;
-  settings: {
-    enabled: boolean;
-    contextInjection: boolean;
-    statusLine: boolean;
-    activePreset: string;
-    [k: string]: unknown;
-  };
-  segments: SegmentEntry[];
-  segmentMeta: SegmentMeta[];
-  presets: PresetSummary[];
-  selection: unknown;
-}
+import type { State, SegmentMeta } from "../shared/types.js";
+import { bindDnd, gripSvg } from "../shared/dnd.js";
+import { makeCheckbox } from "../shared/controls.js";
 
-interface VsCodeApi {
+declare function acquireVsCodeApi(): {
   postMessage(msg: unknown): void;
   getState(): unknown;
   setState(state: unknown): void;
-}
-declare function acquireVsCodeApi(): VsCodeApi;
+};
 
 const vscode = acquireVsCodeApi();
 let currentState: State | null = null;
 let dragFromIdx: number | null = null;
 
-console.log("[claude-bridge sidebar] script loaded");
-
 function post(msg: unknown): void {
-  console.log("[claude-bridge sidebar] post", msg);
   vscode.postMessage(msg);
 }
 
 function render(state: State): void {
+  const prev = currentState;
   currentState = state;
+
+  if (!prev || prev.version !== state.version) renderBrand(state);
+
+  // Setup card changes identity when setupCompleted flips.
+  if (!prev || prev.setupCompleted !== state.setupCompleted) renderSetup(state);
+
+  // Hot sections — idempotent diff-render.
   renderStatusGrid(state);
   renderPresets(state);
   renderSegments(state);
+
+  applySidebarDim(state);
 }
+
+function applySidebarDim(state: State): void {
+  const notSetup = !state.setupCompleted;
+  const sections = document.querySelectorAll<HTMLElement>(".sidebar > section");
+  sections.forEach((el) => {
+    if (el.id === "setupSection" || el.id === "footerSection") return;
+    el.classList.toggle("section-disabled", notSetup);
+  });
+}
+
+function renderBrand(state: State): void {
+  const v = document.getElementById("brandVersion");
+  if (v) v.textContent = `v${state.version}`;
+}
+
+function renderSetup(state: State): void {
+  const root = document.getElementById("setupSection");
+  if (!root) return;
+  root.innerHTML = "";
+  if (state.setupCompleted) return;
+
+  const card = document.createElement("div");
+  card.className = "setup-card";
+  const h = document.createElement("h3");
+  h.className = "setup-card-title";
+  h.textContent = "Get started";
+  const intro = document.createElement("p");
+  intro.className = "setup-card-intro";
+  intro.textContent =
+    "Install Claude Bridge into Claude Code to start piping VS Code selections.";
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "setup-install-btn";
+  btn.textContent = "Install at User scope";
+  btn.addEventListener("click", () => post({ type: "install" }));
+  card.append(h, intro, btn);
+  root.appendChild(card);
+}
+
+// ---------- Status grid (diff-render) ----------
+
+interface ToggleRowDef {
+  key: "contextInjection" | "statusLine" | "autoOpenModifiedFiles";
+  label: string;
+  offHint: string;
+}
+const TOGGLE_ROWS: ToggleRowDef[] = [
+  {
+    key: "contextInjection",
+    label: "Context injection",
+    offHint: "Off — selection won't appear in Claude's context.",
+  },
+  {
+    key: "statusLine",
+    label: "Status line",
+    offHint: "Off — Claude's status line will render without the bridge.",
+  },
+  {
+    key: "autoOpenModifiedFiles",
+    label: "Auto-open edited files",
+    offHint: "Off — files Claude edits stay closed.",
+  },
+];
+
+interface ToggleRowNodes {
+  root: HTMLDivElement;
+  check: HTMLButtonElement;
+  hint: HTMLDivElement | null;
+  def: ToggleRowDef;
+}
+const toggleNodes = new Map<string, ToggleRowNodes>();
 
 function renderStatusGrid(state: State): void {
   const grid = document.getElementById("statusGrid");
   if (!grid) return;
-  const rows: Array<{ key: string; label: string; on: boolean }> = [
-    { key: "enabled", label: "Bridge", on: state.settings.enabled },
-    { key: "contextInjection", label: "Context Injection", on: state.settings.contextInjection },
-    { key: "statusLine", label: "Status Line", on: state.settings.statusLine },
-  ];
-  grid.innerHTML = "";
-  for (const row of rows) {
-    // Use a label+hidden-checkbox pattern so the whole row is clickable
-    // via the checkbox's implicit label association — sidesteps any
-    // <button>-vs-webview-event quirks we were seeing.
-    const wrap = document.createElement("label");
-    wrap.className = "status-row" + (row.on ? " on" : " off");
-    wrap.title = `Click to ${row.on ? "disable" : "enable"} ${row.label}`;
+  if (toggleNodes.size === 0) buildStatusGrid(grid);
+  for (const def of TOGGLE_ROWS) updateToggleRow(def, state);
+}
 
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.className = "status-row-input";
-    cb.checked = row.on;
-    cb.setAttribute("aria-label", row.label);
-    cb.addEventListener("change", () => {
-      console.log("[claude-bridge sidebar] status toggle", row.key, "->", cb.checked);
-      post({ type: "setSetting", key: row.key, value: cb.checked });
+function buildStatusGrid(grid: HTMLElement): void {
+  for (const def of TOGGLE_ROWS) {
+    const row = document.createElement("div");
+    row.className = "status-row";
+    row.dataset.key = def.key;
+
+    const sw = makeCheckbox(false, def.label, (next) => {
+      post({ type: "setSetting", key: def.key, value: next });
     });
 
-    const dot = document.createElement("span");
-    dot.className = "dot";
-    const labelEl = document.createElement("span");
-    labelEl.className = "label";
-    labelEl.textContent = row.label;
-    const stateEl = document.createElement("span");
-    stateEl.className = "state";
-    stateEl.textContent = row.on ? "On" : "Off";
+    const text = document.createElement("div");
+    text.className = "status-row-text";
+    const labelEl = document.createElement("div");
+    labelEl.className = "status-row-label";
+    labelEl.textContent = def.label;
+    text.appendChild(labelEl);
 
-    wrap.append(cb, dot, labelEl, stateEl);
-    grid.appendChild(wrap);
+    row.append(sw, text);
+
+    row.addEventListener("click", (ev) => {
+      if ((ev.target as HTMLElement).closest?.(".cb-check")) return;
+      sw.click();
+    });
+
+    grid.appendChild(row);
+    toggleNodes.set(def.key, { root: row, check: sw, hint: null, def });
   }
 }
+
+function updateToggleRow(def: ToggleRowDef, state: State): void {
+  const nodes = toggleNodes.get(def.key);
+  if (!nodes) return;
+  const on = Boolean(state.settings[def.key]);
+  const isOn = nodes.check.getAttribute("aria-checked") === "true";
+  if (isOn !== on) {
+    nodes.check.classList.toggle("checked", on);
+    nodes.check.setAttribute("aria-checked", String(on));
+  }
+  // Hint node appears only when the toggle is off.
+  if (on && nodes.hint) {
+    nodes.hint.remove();
+    nodes.hint = null;
+  } else if (!on && !nodes.hint) {
+    const hint = document.createElement("div");
+    hint.className = "status-row-hint";
+    hint.textContent = def.offHint;
+    const text = nodes.root.querySelector<HTMLElement>(".status-row-text");
+    text?.appendChild(hint);
+    nodes.hint = hint;
+  }
+}
+
+// ---------- Preset dropdown ----------
+
+interface PresetNodes {
+  select: HTMLSelectElement;
+  desc: HTMLElement;
+}
+let presetNodes: PresetNodes | null = null;
 
 function renderPresets(state: State): void {
-  const select = document.getElementById("presetSelect") as HTMLSelectElement | null;
+  const row = document.getElementById("presetRow");
   const desc = document.getElementById("presetDesc");
-  if (!select || !desc) return;
-
-  select.innerHTML = "";
-  for (const p of state.presets) {
-    const opt = document.createElement("option");
-    opt.value = p.id;
-    opt.textContent = p.label;
-    select.appendChild(opt);
+  if (!row || !desc) return;
+  if (!presetNodes) {
+    row.innerHTML = "";
+    const select = document.createElement("select");
+    select.className = "preset-select";
+    for (const p of state.presets) {
+      const opt = document.createElement("option");
+      opt.value = p.id;
+      opt.textContent = p.label;
+      opt.title = p.description;
+      select.appendChild(opt);
+    }
+    const custom = document.createElement("option");
+    custom.value = "custom";
+    custom.textContent = "Custom";
+    select.appendChild(custom);
+    select.addEventListener("change", () => {
+      if (select.value === "custom") return;
+      post({ type: "applyPreset", presetId: select.value });
+    });
+    row.appendChild(select);
+    presetNodes = { select, desc };
   }
-  const custom = document.createElement("option");
-  custom.value = "custom";
-  custom.textContent = "Custom";
-  select.appendChild(custom);
 
-  select.value = state.settings.activePreset || "custom";
-  const matched = state.presets.find((p) => p.id === select.value);
-  desc.textContent = matched ? matched.description : "Your own configuration.";
-
-  select.onchange = () => {
-    if (select.value === "custom") return;
-    post({ type: "applyPreset", presetId: select.value });
-  };
+  const active = state.settings.activePreset;
+  presetNodes.select.value = active || "custom";
+  const matched = state.presets.find((p) => p.id === active);
+  const next = matched ? matched.description : "Your own configuration.";
+  if (desc.textContent !== next) desc.textContent = next;
 }
+
+// ---------- Segment list (diff-render, reorder-preserving) ----------
+
+interface SegmentNodes {
+  li: HTMLLIElement;
+  check: HTMLButtonElement;
+  label: HTMLElement;
+  example: HTMLElement;
+  meta: SegmentMeta;
+}
+const segmentNodes = new Map<string, SegmentNodes>();
+let segmentsBuilt = false;
 
 function renderSegments(state: State): void {
   const list = document.getElementById("segmentsList");
   if (!list) return;
-  list.innerHTML = "";
   const metaById = new Map(state.segmentMeta.map((m) => [m.id, m] as const));
+
+  // First render: build every known segment node. Subsequent renders
+  // reuse nodes and only reorder / toggle state.
+  if (!segmentsBuilt) {
+    for (const [id, meta] of metaById) {
+      segmentNodes.set(id, buildSegmentNode(meta));
+    }
+    segmentsBuilt = true;
+  }
+
+  // Walk state.segments in order; append each node (appendChild on an
+  // existing child moves it — doesn't clone/rebuild).
   for (let idx = 0; idx < state.segments.length; idx++) {
     const entry = state.segments[idx];
-    const meta = metaById.get(entry.id);
-    if (!meta) continue;
-
-    const li = document.createElement("li");
-    li.className = "segment" + (entry.enabled ? " on" : "");
-    li.draggable = true;
-    li.dataset.index = String(idx);
-    li.dataset.id = entry.id;
-    li.title = meta.description;
-
-    const handle = document.createElement("span");
-    handle.className = "drag-handle";
-    handle.setAttribute("aria-hidden", "true");
-    handle.textContent = "\u2630";
-
-    const cb = document.createElement("input");
-    cb.type = "checkbox";
-    cb.checked = entry.enabled;
-    cb.setAttribute("aria-label", meta.label);
-    cb.addEventListener("change", () => {
-      if (!currentState) return;
-      const next = currentState.segments.map((s) =>
-        s.id === entry.id ? { ...s, enabled: cb.checked } : s,
-      );
-      post({ type: "setSegments", segments: next });
-    });
-
-    const label = document.createElement("span");
-    label.className = "segment-label";
-    label.textContent = meta.label;
-
-    li.append(handle, cb, label);
-    bindDnd(li);
-    list.appendChild(li);
+    const nodes = segmentNodes.get(entry.id);
+    if (!nodes) continue;
+    if (list.children[idx] !== nodes.li) list.appendChild(nodes.li);
+    nodes.li.dataset.index = String(idx);
+    nodes.li.classList.toggle("on", entry.enabled);
+    const isOn = nodes.check.getAttribute("aria-checked") === "true";
+    if (isOn !== entry.enabled) {
+      nodes.check.classList.toggle("checked", entry.enabled);
+      nodes.check.setAttribute("aria-checked", String(entry.enabled));
+    }
+    nodes.li.setAttribute(
+      "aria-label",
+      `${nodes.meta.label}, ${entry.enabled ? "on" : "off"}, example ${nodes.meta.example}`,
+    );
   }
 }
 
-function bindDnd(el: HTMLElement): void {
-  el.addEventListener("dragstart", (ev) => {
-    dragFromIdx = Number(el.dataset.index);
-    el.classList.add("dragging");
-    if (ev.dataTransfer) {
-      ev.dataTransfer.setData("text/plain", String(dragFromIdx));
-      ev.dataTransfer.effectAllowed = "move";
-    }
+function buildSegmentNode(meta: SegmentMeta): SegmentNodes {
+  const li = document.createElement("li");
+  li.className = "segment";
+  li.draggable = true;
+  li.dataset.id = meta.id;
+  li.title = meta.description;
+
+  const handleWrap = document.createElement("span");
+  handleWrap.className = "drag-handle";
+  handleWrap.setAttribute("aria-hidden", "true");
+  handleWrap.innerHTML = gripSvg();
+
+  const check = makeCheckbox(false, meta.label, (next) => {
+    if (!currentState) return;
+    const updated = currentState.segments.map((s) =>
+      s.id === meta.id ? { ...s, enabled: next } : s,
+    );
+    post({ type: "setSegments", segments: updated });
   });
-  el.addEventListener("dragend", () => {
-    el.classList.remove("dragging");
-    dragFromIdx = null;
-    document.querySelectorAll(".segment.drag-over").forEach((n) => n.classList.remove("drag-over"));
+
+  const label = document.createElement("span");
+  label.className = "segment-label";
+  label.textContent = meta.label;
+
+  const example = document.createElement("code");
+  example.className = "segment-example";
+  example.textContent = meta.example;
+
+  li.append(handleWrap, check, label, example);
+  bindDnd(li, handleWrap, {
+    getDraggingIndex: () => dragFromIdx,
+    setDraggingIndex: (i) => { dragFromIdx = i; },
+    onDrop: (fromIdx, toIdx) => {
+      if (!currentState) return;
+      const next = currentState.segments.slice();
+      const [moved] = next.splice(fromIdx, 1);
+      next.splice(toIdx, 0, moved);
+      post({ type: "setSegments", segments: next });
+    },
   });
-  el.addEventListener("dragover", (ev) => {
-    ev.preventDefault();
-    if (ev.dataTransfer) ev.dataTransfer.dropEffect = "move";
-    el.classList.add("drag-over");
+  li.addEventListener("click", (ev) => {
+    const t = ev.target as HTMLElement;
+    if (t.closest?.(".drag-handle") || t.closest?.(".cb-check")) return;
+    check.click();
   });
-  el.addEventListener("dragleave", () => el.classList.remove("drag-over"));
-  el.addEventListener("drop", (ev) => {
-    ev.preventDefault();
-    el.classList.remove("drag-over");
-    if (!currentState || dragFromIdx === null) return;
-    const toIdx = Number(el.dataset.index);
-    if (dragFromIdx === toIdx) return;
-    const next = currentState.segments.slice();
-    const [moved] = next.splice(dragFromIdx, 1);
-    next.splice(toIdx, 0, moved);
-    post({ type: "setSegments", segments: next });
-  });
+
+  return { li, check, label, example, meta };
 }
 
 document.getElementById("openSettingsBtn")?.addEventListener("click", () => {
@@ -208,9 +315,11 @@ document.getElementById("openSettingsBtn")?.addEventListener("click", () => {
 
 window.addEventListener("message", (ev: MessageEvent) => {
   const msg = ev.data as { type?: string; state?: State };
-  console.log("[claude-bridge sidebar] recv", msg?.type);
   if (msg && msg.type === "state" && msg.state) {
+    const t0 = performance.now();
     render(msg.state);
+    const ms = performance.now() - t0;
+    post({ type: "perf", label: "sidebar.render", ms });
   }
 });
 

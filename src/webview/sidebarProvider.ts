@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { InboundMessage, OutboundMessage, State } from "./messages";
+import { getNonce } from "./nonce";
 
 export class ClaudeBridgeSidebarProvider implements vscode.WebviewViewProvider {
   public static readonly viewType = "claude-bridge.dashboard";
@@ -44,6 +45,9 @@ export class ClaudeBridgeSidebarProvider implements vscode.WebviewViewProvider {
     const styleUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, "webview", "sidebar", "style.css"),
     );
+    const tokensUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, "webview", "shared", "tokens.css"),
+    );
     const nonce = getNonce();
     const cspSource = webview.cspSource;
 
@@ -51,7 +55,9 @@ export class ClaudeBridgeSidebarProvider implements vscode.WebviewViewProvider {
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource}; script-src 'nonce-${nonce}';" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${cspSource}; script-src 'nonce-${nonce}' 'strict-dynamic';" />
+  <link rel="preload" as="style" href="${tokensUri}" />
+  <link rel="stylesheet" href="${tokensUri}" />
   <link rel="stylesheet" href="${styleUri}" />
   <title>Claude Bridge</title>
 </head>
@@ -59,31 +65,34 @@ export class ClaudeBridgeSidebarProvider implements vscode.WebviewViewProvider {
   <main class="sidebar">
     <header class="brand">
       <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
-        <path d="M7 5L3 12l4 7" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
-        <path d="M17 5l4 7-4 7" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <path d="M8 6.5L3.5 12 8 17.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+        <path d="M16 6.5L20.5 12 16 17.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
         <path d="M12 7.5l1 3.5 3.5 1-3.5 1-1 3.5-1-3.5-3.5-1 3.5-1z" fill="#D97757"/>
       </svg>
       <span class="brand-title">Claude Bridge</span>
+      <span class="brand-version" id="brandVersion"></span>
     </header>
 
-    <section class="status-grid" id="statusGrid" aria-label="Feature toggles"></section>
+    <section class="setup-section" id="setupSection"></section>
 
-    <section class="preset">
-      <label for="presetSelect">Preset</label>
-      <select id="presetSelect"></select>
+    <section class="cb-section" id="statusSection" aria-label="Feature toggles">
+      <div class="cb-eyebrow"><span class="eyebrow-label">Toggles</span></div>
+      <div class="status-grid" id="statusGrid"></div>
+    </section>
+
+    <section class="cb-section" id="presetSection" aria-label="Preset">
+      <div class="cb-eyebrow"><span class="eyebrow-label">Preset</span></div>
+      <div class="preset-row" id="presetRow"></div>
       <p class="preset-desc" id="presetDesc"></p>
     </section>
 
-    <section class="segments">
-      <div class="segments-header">
-        <h3>Segments</h3>
-        <span class="hint">Drag to reorder</span>
-      </div>
-      <ul id="segmentsList" class="segments-list" aria-label="Status line segments"></ul>
+    <section class="cb-section" id="segmentsSection" aria-label="Status line segments">
+      <div class="cb-eyebrow"><span class="eyebrow-label">Segments</span><span class="eyebrow-hint">Drag to reorder</span></div>
+      <ul id="segmentsList" class="segments-list"></ul>
     </section>
 
-    <footer>
-      <button id="openSettingsBtn" type="button" class="primary">Open full settings\u2026</button>
+    <footer id="footerSection">
+      <button id="openSettingsBtn" type="button" class="cb-btn-ghost">Open full settings</button>
     </footer>
   </main>
 
@@ -91,13 +100,4 @@ export class ClaudeBridgeSidebarProvider implements vscode.WebviewViewProvider {
 </body>
 </html>`;
   }
-}
-
-function getNonce(): string {
-  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let text = "";
-  for (let i = 0; i < 32; i++) {
-    text += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return text;
 }

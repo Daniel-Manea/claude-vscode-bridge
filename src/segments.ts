@@ -5,10 +5,10 @@ export type SegmentId =
   | "gitBranch"
   | "contextBar"
   | "contextPercentage"
+  | "tokensUsed"
   | "cost"
   | "linesChanged"
   | "rateLimits"
-  | "sessionDuration"
   | "selection";
 
 export interface SegmentEntry {
@@ -27,26 +27,32 @@ export const SEGMENT_META: Record<SegmentId, SegmentMeta> = {
   model: {
     id: "model",
     label: "Model",
-    description: "Model name (e.g., Opus 4.6)",
-    example: "Opus 4.6",
+    description: "Active model",
+    example: "Opus 4.7",
   },
   gitBranch: {
     id: "gitBranch",
     label: "Git branch",
-    description: "Current git branch",
+    description: "Current branch",
     example: "main",
   },
   contextBar: {
     id: "contextBar",
     label: "Context bar",
-    description: "Context window progress bar",
+    description: "Context window usage bar",
     example: "\u2588\u2588\u2591\u2591\u2591\u2591",
   },
   contextPercentage: {
     id: "contextPercentage",
     label: "Context %",
-    description: "Context window usage percentage",
+    description: "Context window usage as a percentage",
     example: "24%",
+  },
+  tokensUsed: {
+    id: "tokensUsed",
+    label: "Tokens used",
+    description: "Cumulative input + output tokens this session",
+    example: "45k",
   },
   cost: {
     id: "cost",
@@ -57,26 +63,20 @@ export const SEGMENT_META: Record<SegmentId, SegmentMeta> = {
   linesChanged: {
     id: "linesChanged",
     label: "Lines changed",
-    description: "Lines added/removed this session",
+    description: "Lines added and removed this session",
     example: "+42 -3",
   },
   rateLimits: {
     id: "rateLimits",
     label: "Rate limits",
-    description: "5-hour and 7-day rate limit usage",
+    description: "Rate limit usage (5h / 7d windows)",
     example: "5h:12% 7d:3%",
-  },
-  sessionDuration: {
-    id: "sessionDuration",
-    label: "Session duration",
-    description: "Session wall-clock duration",
-    example: "1h 23m",
   },
   selection: {
     id: "selection",
-    label: "VS Code selection",
-    description: "Current VS Code selection (@file#lines)",
-    example: "@src/app.ts#L12-45",
+    label: "Editor selection",
+    description: "Current editor selection (file and line range)",
+    example: "app.ts L12–45",
   },
 };
 
@@ -85,10 +85,10 @@ export const SEGMENT_ORDER: SegmentId[] = [
   "gitBranch",
   "contextBar",
   "contextPercentage",
+  "tokensUsed",
   "cost",
   "linesChanged",
   "rateLimits",
-  "sessionDuration",
   "selection",
 ];
 
@@ -97,10 +97,10 @@ export const DEFAULT_SEGMENTS: SegmentEntry[] = [
   { id: "gitBranch", enabled: true },
   { id: "contextBar", enabled: true },
   { id: "contextPercentage", enabled: true },
+  { id: "tokensUsed", enabled: false },
   { id: "cost", enabled: false },
   { id: "linesChanged", enabled: false },
   { id: "rateLimits", enabled: false },
-  { id: "sessionDuration", enabled: false },
   { id: "selection", enabled: true },
 ];
 

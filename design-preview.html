@@ -1,0 +1,1127 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Claude Bridge — v3 Design Preview</title>
+<style>
+  /* ============================================================
+     Tokens (copied verbatim from PLAN.md § Appendix A)
+     ============================================================ */
+  :root {
+    /* color */
+    --cb-accent:          #D97757;
+    --cb-accent-hover:    #E48770;
+    --cb-accent-active:   #C86B4F;
+    --cb-accent-subtle:   rgba(217, 119, 87, 0.10);
+    --cb-accent-border:   rgba(217, 119, 87, 0.36);
+    --cb-accent-fg:       #FFFFFF;
+    --cb-bridge:          #4FC3F7;
+    --cb-bridge-subtle:   rgba(79, 195, 247, 0.10);
+
+    --cb-fg:              #E6E6E6;
+    --cb-muted:           #8A8F98;
+    --cb-surface:         transparent;
+    --cb-surface-raised:  rgba(255, 255, 255, 0.025);
+    --cb-surface-pressed: rgba(255, 255, 255, 0.05);
+    --cb-border:          rgba(128, 128, 128, 0.18);
+    --cb-border-strong:   rgba(128, 128, 128, 0.30);
+    --cb-focus:           #007FD4;
+
+    --cb-on:              #73C991;
+    --cb-off:             #F14C4C;
+    --cb-warn:            #E2B93B;
+    --cb-info:            var(--cb-bridge);
+
+    --cb-font-ui: -apple-system, BlinkMacSystemFont, "Segoe UI",
+                  "Helvetica Neue", system-ui, sans-serif;
+    --cb-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+                    "Liberation Mono", monospace;
+
+    --cb-space-1:  4px;
+    --cb-space-2:  8px;
+    --cb-space-3: 12px;
+    --cb-space-4: 16px;
+    --cb-space-5: 24px;
+    --cb-space-6: 32px;
+    --cb-space-7: 48px;
+
+    --cb-radius-sm:    3px;
+    --cb-radius-md:    6px;
+    --cb-radius-lg:   10px;
+    --cb-radius-full: 9999px;
+
+    --cb-dur-fast:    100ms;
+    --cb-dur-normal:  180ms;
+    --cb-dur-slow:    280ms;
+    --cb-ease-out:    cubic-bezier(0.16, 1, 0.3, 1);
+    --cb-ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+    --cb-elev-0: none;
+    --cb-elev-1: inset 0 0 0 1px var(--cb-border);
+    --cb-elev-2: inset 0 0 0 1px var(--cb-accent-border);
+
+    --vsc-bg:         #1E1E1E;
+    --vsc-sidebar-bg: #181818;
+    --vsc-statusbar-bg: #232629;
+    --vsc-panel-border: #2A2D2E;
+    --vsc-hover: rgba(255, 255, 255, 0.05);
+  }
+
+  /* Page chrome — NOT brand, just the shell for this preview */
+  * { box-sizing: border-box; }
+  html { color-scheme: dark; }
+  body {
+    margin: 0;
+    font-family: var(--cb-font-ui);
+    font-size: 13px;
+    line-height: 1.4;
+    color: var(--cb-fg);
+    background: #0B0B0D;
+  }
+  .wrap {
+    display: grid;
+    grid-template-columns: 240px minmax(0, 1fr);
+    max-width: 1320px;
+    margin: 0 auto;
+    padding: 24px;
+    gap: 32px;
+  }
+  nav.toc {
+    position: sticky;
+    top: 24px;
+    align-self: start;
+    height: calc(100vh - 48px);
+    overflow-y: auto;
+    font-size: 12px;
+    padding-right: 8px;
+    border-right: 1px solid var(--cb-border);
+  }
+  nav.toc h1 { font-size: 13px; font-weight: 700; margin: 0 0 12px; letter-spacing: 0.2px; }
+  nav.toc h1 small { font-weight: 400; color: var(--cb-muted); }
+  nav.toc ol { list-style: none; margin: 0; padding: 0; counter-reset: toc; }
+  nav.toc li { counter-increment: toc; padding: 4px 0; }
+  nav.toc li::before { content: counter(toc, decimal) ". "; color: var(--cb-muted); font-variant-numeric: tabular-nums; margin-right: 4px; }
+  nav.toc a { color: var(--cb-fg); text-decoration: none; }
+  nav.toc a:hover { color: var(--cb-accent); }
+  main { min-width: 0; }
+  section.block { margin-bottom: 48px; padding-bottom: 48px; border-bottom: 1px solid var(--cb-border); }
+  section.block:last-child { border-bottom: none; }
+  h2.section-title { font-size: 20px; font-weight: 700; letter-spacing: -0.2px; margin: 0 0 8px; }
+  p.section-intro { margin: 0 0 24px; color: var(--cb-muted); max-width: 68ch; }
+  h3.subhead { font-size: 13px; text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600; color: var(--cb-muted); margin: 24px 0 12px; }
+  .note { font-size: 12px; color: var(--cb-muted); margin: 8px 0 0; }
+  code, kbd {
+    font-family: var(--cb-font-mono);
+    font-size: 11px;
+    padding: 1px 5px;
+    border-radius: 3px;
+    background: rgba(255, 255, 255, 0.05);
+    color: var(--cb-fg);
+  }
+
+  /* ============================================================
+     Brand components (what will ship)
+     ============================================================ */
+  .brand-mark { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; color: var(--cb-fg); }
+  .brand-mark svg { display: block; }
+
+  .cb-check {
+    width: 16px; height: 16px;
+    border-radius: var(--cb-radius-sm);
+    border: 1.5px solid var(--cb-muted);
+    display: inline-flex; align-items: center; justify-content: center;
+    flex: 0 0 auto;
+    transition: background var(--cb-dur-fast) var(--cb-ease-out),
+                border-color var(--cb-dur-fast) var(--cb-ease-out);
+    cursor: pointer;
+  }
+  .cb-check svg { width: 10px; height: 10px; color: var(--cb-accent-fg); clip-path: inset(0 100% 0 0); transition: clip-path var(--cb-dur-fast) var(--cb-ease-spring); }
+  .cb-check.on { background: var(--cb-accent); border-color: var(--cb-accent); }
+  .cb-check.on svg { clip-path: inset(0 0 0 0); }
+  .cb-check:hover { border-color: var(--cb-fg); }
+  .cb-check.on:hover { background: var(--cb-accent-hover); border-color: var(--cb-accent-hover); }
+
+  .cb-btn {
+    display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 0 12px; height: 28px;
+    font: inherit; font-size: 12px; font-weight: 500;
+    border-radius: var(--cb-radius-sm);
+    border: 1px solid transparent;
+    cursor: pointer;
+    transition: background var(--cb-dur-fast) var(--cb-ease-out),
+                border-color var(--cb-dur-fast) var(--cb-ease-out),
+                color var(--cb-dur-fast) var(--cb-ease-out);
+    text-decoration: none; white-space: nowrap;
+  }
+  .cb-btn--primary { background: var(--cb-accent); color: var(--cb-accent-fg); font-weight: 600; }
+  .cb-btn--primary:hover { background: var(--cb-accent-hover); }
+  .cb-btn--primary:active { background: var(--cb-accent-active); }
+  .cb-btn--primary-lg { height: 32px; padding: 0 16px; }
+  .cb-btn--ghost { background: transparent; color: var(--cb-fg); border-color: var(--cb-border); }
+  .cb-btn--ghost:hover { background: var(--vsc-hover); border-color: var(--cb-border-strong); }
+  .cb-btn--danger { background: transparent; color: var(--cb-off); border-color: var(--cb-border); }
+  .cb-btn--danger:hover { background: rgba(241, 76, 76, 0.10); border-color: var(--cb-off); }
+  .cb-btn--link { background: transparent; color: var(--cb-fg); border-color: transparent; padding: 0; height: auto; }
+  .cb-btn--link:hover { color: var(--cb-accent); }
+
+  .cb-select {
+    width: 100%; height: 28px;
+    padding: 0 28px 0 10px;
+    border-radius: var(--cb-radius-md);
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--cb-fg);
+    border: 1px solid var(--cb-border);
+    font: inherit;
+    appearance: none;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' fill='none' stroke='%238A8F98' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'><path d='M3 5l3 3 3-3'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+  }
+
+  .cb-input {
+    height: 28px;
+    padding: 0 10px;
+    border-radius: var(--cb-radius-md);
+    background: rgba(255, 255, 255, 0.02);
+    color: var(--cb-fg);
+    border: 1px solid var(--cb-border);
+    font: inherit;
+  }
+  .cb-input:focus { outline: none; border-color: var(--cb-focus); }
+
+  .cb-eyebrow {
+    display: flex; justify-content: space-between; align-items: baseline;
+    color: var(--cb-muted); margin-bottom: 8px;
+  }
+  .cb-eyebrow h4 { margin: 0; font-size: 10px; font-weight: 600; letter-spacing: 0.6px; text-transform: uppercase; }
+  .cb-eyebrow span { font-size: 10px; opacity: 0.7; }
+
+  .cb-toggle-row {
+    display: grid; grid-template-columns: 16px 1fr;
+    gap: 12px; align-items: center;
+    padding: 7px 8px; border-radius: var(--cb-radius-sm);
+    cursor: pointer;
+    transition: background 80ms var(--cb-ease-out);
+  }
+  .cb-toggle-row:hover { background: var(--vsc-hover); }
+  .cb-toggle-row--stack { grid-template-rows: auto auto; }
+  .cb-toggle-row__label { font-size: 13px; color: var(--cb-fg); }
+  .cb-toggle-row__hint { grid-column: 2; font-size: 10px; color: var(--cb-muted); }
+
+  .cb-preset { display: flex; gap: 4px; flex-wrap: wrap; }
+  .cb-pill {
+    padding: 5px 12px; border-radius: var(--cb-radius-full);
+    font-size: 12px; font-weight: 500;
+    background: transparent; color: var(--cb-fg);
+    border: 1px solid var(--cb-border);
+    cursor: pointer;
+    transition: background var(--cb-dur-fast) var(--cb-ease-spring),
+                color var(--cb-dur-fast) var(--cb-ease-out),
+                border-color var(--cb-dur-fast) var(--cb-ease-out);
+  }
+  .cb-pill:hover { border-color: var(--cb-border-strong); background: var(--vsc-hover); }
+  .cb-pill.on {
+    background: var(--cb-accent); color: var(--cb-accent-fg);
+    border-color: var(--cb-accent); font-weight: 600;
+  }
+  .cb-pill.on:hover { background: var(--cb-accent-hover); border-color: var(--cb-accent-hover); }
+  .cb-pill--custom { color: var(--cb-muted); font-style: italic; }
+
+  .cb-seg-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+  .cb-seg {
+    display: grid;
+    grid-template-columns: 14px 16px 1fr auto;
+    align-items: center; gap: 8px;
+    padding: 6px 6px;
+    border: 1px solid transparent;
+    border-radius: var(--cb-radius-sm);
+    transition: background 80ms var(--cb-ease-out);
+    user-select: none;
+  }
+  .cb-seg:hover { background: var(--vsc-hover); }
+  .cb-seg .grip { color: var(--cb-muted); opacity: 0.3; cursor: grab; display: inline-flex; transition: opacity var(--cb-dur-fast) var(--cb-ease-out); }
+  .cb-seg:hover .grip { opacity: 1; }
+  .cb-seg__label { font-size: 12px; color: var(--cb-fg); opacity: 0.55; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cb-seg.on .cb-seg__label { opacity: 1; }
+  .cb-seg__example {
+    font-family: var(--cb-font-mono); font-size: 10px;
+    padding: 2px 6px; border-radius: var(--cb-radius-sm);
+    background: var(--cb-surface-raised); color: var(--cb-muted);
+    white-space: nowrap;
+  }
+  .cb-seg.drag-over { border-color: var(--cb-accent); background: var(--cb-accent-subtle); }
+  .cb-seg.dragging { opacity: 0.4; }
+
+  .cb-install {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: var(--cb-radius-md);
+    background: var(--cb-surface-raised); box-shadow: var(--cb-elev-1);
+    font-size: 12px;
+  }
+  .cb-install__dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cb-on); flex: 0 0 auto; }
+  .cb-install__text { flex: 1 1 auto; color: var(--cb-fg); font-weight: 500; }
+  .cb-install__manage { font-size: 11px; color: var(--cb-muted); text-decoration: none; }
+  .cb-install__manage:hover { color: var(--cb-accent); }
+
+  .cb-card {
+    background: var(--cb-surface-raised); box-shadow: var(--cb-elev-1);
+    border-radius: var(--cb-radius-md); padding: 16px;
+  }
+  .cb-card--accent {
+    background: var(--cb-accent-subtle); box-shadow: var(--cb-elev-2);
+    border-radius: var(--cb-radius-lg); padding: 20px;
+  }
+
+  .cb-sep { height: 1px; background: var(--cb-border); border: 0; }
+  .cb-hint { font-size: 10px; color: var(--cb-muted); }
+  .cb-dim {
+    opacity: 0.5; pointer-events: none; filter: saturate(0.4);
+    transition: opacity var(--cb-dur-normal) var(--cb-ease-out),
+                filter var(--cb-dur-normal) var(--cb-ease-out);
+  }
+
+  /* Helpers for this preview */
+  .grid { display: grid; gap: 24px; }
+  .grid--2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .grid--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+  .swatches { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; }
+  .swatch { background: var(--cb-surface-raised); border-radius: var(--cb-radius-md); box-shadow: var(--cb-elev-1); overflow: hidden; }
+  .swatch .chip { height: 52px; }
+  .swatch .meta { padding: 10px 12px; font-size: 11px; line-height: 1.4; }
+  .swatch .meta .tok { color: var(--cb-fg); font-weight: 600; }
+  .swatch .meta .val { color: var(--cb-muted); font-family: var(--cb-font-mono); }
+
+  .type-row { padding: 10px 0; border-bottom: 1px solid var(--cb-border); }
+  .type-row:last-child { border-bottom: 0; }
+  .type-row .tok { color: var(--cb-muted); font-family: var(--cb-font-mono); font-size: 11px; margin-bottom: 6px; display: block; }
+
+  .spacing-ruler { display: flex; flex-direction: column; gap: 8px; }
+  .spacing-ruler .bar {
+    background: var(--cb-accent-subtle); border-left: 2px solid var(--cb-accent);
+    height: 18px; padding-left: 6px; font-size: 11px; color: var(--cb-muted);
+    line-height: 18px; font-family: var(--cb-font-mono);
+  }
+
+  .motion-demo { display: flex; gap: 12px; align-items: center; padding: 12px 0; }
+  .motion-demo .dot { width: 14px; height: 14px; border-radius: 50%; background: var(--cb-accent); transition: transform var(--cb-dur-fast) var(--cb-ease-out), background var(--cb-dur-fast) var(--cb-ease-out); }
+  .motion-demo:hover .dot.hover { transform: translateX(16px); }
+  .motion-demo:hover .dot.pop { transform: scale(1.4); background: var(--cb-bridge); }
+  .motion-demo .label { font-family: var(--cb-font-mono); font-size: 11px; color: var(--cb-muted); }
+
+  .slot { background: var(--vsc-bg); border: 1px solid var(--cb-border); border-radius: var(--cb-radius-md); padding: 16px; }
+  .slot__caption { display: block; font-size: 10px; letter-spacing: 0.6px; text-transform: uppercase; color: var(--cb-muted); font-weight: 600; margin-bottom: 12px; }
+
+  .sidebar-frame { width: 320px; background: var(--vsc-sidebar-bg); border-radius: var(--cb-radius-md); overflow: hidden; border: 1px solid var(--cb-border); }
+  .sidebar-frame__title { padding: 10px 12px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--cb-muted); display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--vsc-panel-border); }
+  .sidebar { padding: 8px 12px 12px; display: flex; flex-direction: column; gap: 12px; color: var(--cb-fg); }
+  .sidebar .brand { display: flex; align-items: center; gap: 8px; padding-bottom: 8px; border-bottom: 1px solid var(--cb-border); }
+  .sidebar .brand__title { font-size: 13px; font-weight: 600; letter-spacing: 0.2px; }
+  .sidebar .brand__version { margin-left: auto; font-size: 9px; letter-spacing: 0.3px; color: var(--cb-muted); font-variant-numeric: tabular-nums; }
+
+  .panel-frame { background: var(--vsc-bg); border-radius: var(--cb-radius-md); border: 1px solid var(--cb-border); overflow: hidden; }
+  .panel-frame__tab { padding: 10px 16px; font-size: 11px; text-transform: uppercase; letter-spacing: 0.6px; color: var(--cb-muted); border-bottom: 1px solid var(--vsc-panel-border); }
+  .panel { padding: 20px 24px; display: flex; flex-direction: column; gap: 20px; max-width: 720px; margin: 0 auto; }
+  .panel__scope { position: sticky; top: 0; display: flex; justify-content: space-between; align-items: center; padding: 10px 0; background: var(--vsc-bg); border-bottom: 1px solid var(--cb-border); }
+
+  .hero { padding: 16px; display: flex; align-items: center; gap: 12px; background: var(--cb-surface-raised); box-shadow: var(--cb-elev-1); border-radius: var(--cb-radius-md); }
+  .hero__title { font-size: 20px; font-weight: 700; letter-spacing: -0.2px; }
+  .hero__tag { font-size: 12px; color: var(--cb-muted); }
+
+  .terminal {
+    background: #0C0C0C; color: #E6E6E6;
+    border: 1px solid var(--cb-border); border-radius: var(--cb-radius-md);
+    padding: 16px 18px;
+    font-family: var(--cb-font-mono); font-size: 12px; line-height: 1.7;
+    overflow-x: auto; white-space: nowrap;
+  }
+  .terminal .dim { color: rgba(230, 230, 230, 0.45); }
+  .terminal .bold { font-weight: 700; }
+  .terminal .cy { color: #4FC3F7; }
+  .terminal .gr { color: #73C991; }
+  .terminal .yl { color: #E2B93B; }
+  .terminal .rd { color: #F14C4C; }
+  .terminal .or { color: #D97757; }
+
+  .vsc-statusbar { background: var(--vsc-statusbar-bg); display: flex; align-items: center; padding: 0 8px; height: 22px; font-size: 12px; color: var(--cb-fg); border-radius: var(--cb-radius-sm); gap: 8px; }
+  .vsc-statusbar .segment { padding: 0 6px; display: flex; align-items: center; gap: 4px; height: 22px; }
+
+  .tooltip-pop { width: 320px; background: #1B1B1B; border: 1px solid var(--cb-border-strong); border-radius: var(--cb-radius-md); padding: 14px 16px; font-size: 12px; color: var(--cb-fg); line-height: 1.45; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.45); }
+  .tooltip-pop h5 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 13px; font-weight: 600; }
+  .tooltip-pop h5 .ver { margin-left: auto; color: var(--cb-muted); font-size: 10px; font-weight: 400; }
+  .tooltip-pop .r { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+  .tooltip-pop .r .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--cb-on); }
+  .tooltip-pop .r .dot.off { background: var(--cb-off); }
+  .tooltip-pop hr { border: 0; border-top: 1px solid var(--cb-border); margin: 10px 0; }
+  .tooltip-pop .caps { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.6px; color: var(--cb-muted); }
+  .tooltip-pop .path { font-family: var(--cb-font-mono); font-size: 11px; color: var(--cb-fg); margin: 4px 0; }
+  .tooltip-pop .italic { color: var(--cb-muted); font-style: italic; }
+  .tooltip-pop .actions { display: flex; gap: 8px; font-size: 11px; color: var(--cb-accent); }
+
+  .decision { background: var(--cb-surface-raised); box-shadow: var(--cb-elev-1); border-radius: var(--cb-radius-md); padding: 20px; margin-bottom: 16px; }
+  .decision__head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 12px; }
+  .decision__id { font-family: var(--cb-font-mono); font-size: 11px; color: var(--cb-muted); }
+  .decision__opts { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+  .opt { padding: 12px; border: 1px solid var(--cb-border); border-radius: var(--cb-radius-md); background: var(--vsc-bg); font-size: 12px; color: var(--cb-fg); }
+  .opt.pick { border-color: var(--cb-accent-border); background: var(--cb-accent-subtle); }
+  .opt__label { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .opt__letter { font-family: var(--cb-font-mono); font-size: 11px; color: var(--cb-muted); }
+  .opt__pick { font-size: 10px; color: var(--cb-accent); text-transform: uppercase; letter-spacing: 0.6px; font-weight: 700; }
+
+  .toast-stack { display: flex; flex-direction: column; gap: 8px; max-width: 420px; }
+  .toast { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-radius: var(--cb-radius-md); background: #2A2A2B; color: var(--cb-fg); box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35); font-size: 12px; line-height: 1.5; border-left: 3px solid var(--cb-muted); }
+  .toast.success { border-left-color: var(--cb-on); }
+  .toast.info { border-left-color: var(--cb-info); }
+  .toast.warn { border-left-color: var(--cb-warn); }
+  .toast.err { border-left-color: var(--cb-off); }
+  .toast b { color: var(--cb-fg); }
+
+  .state-card { padding: 16px; background: var(--vsc-bg); border: 1px solid var(--cb-border); border-radius: var(--cb-radius-md); }
+  .state-card h4 { margin: 0 0 4px; font-size: 12px; font-weight: 600; }
+  .state-card p { margin: 0; font-size: 11px; color: var(--cb-muted); }
+
+  .flist { font-family: var(--cb-font-mono); font-size: 11px; line-height: 1.6; }
+  .flist b { color: var(--cb-accent); font-weight: 500; }
+  .flist i { color: var(--cb-muted); font-style: normal; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+
+  /* Reusable check SVG — inlined everywhere */
+  .check-svg { width: 10px; height: 10px; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+
+  <nav class="toc">
+    <h1>Claude Bridge <small>v3 preview</small></h1>
+    <ol>
+      <li><a href="#intro">Intro</a></li>
+      <li><a href="#identity">Identity</a></li>
+      <li><a href="#color">Color</a></li>
+      <li><a href="#type">Typography</a></li>
+      <li><a href="#spacing">Spacing / radius</a></li>
+      <li><a href="#motion">Motion</a></li>
+      <li><a href="#components">Components</a></li>
+      <li><a href="#sidebar">Sidebar dashboard</a></li>
+      <li><a href="#settings">Settings panel</a></li>
+      <li><a href="#statusline">Status line</a></li>
+      <li><a href="#statusbar">VS Code status bar</a></li>
+      <li><a href="#notifications">Notifications</a></li>
+      <li><a href="#backend">Backend surfaces</a></li>
+      <li><a href="#marketplace">Marketplace</a></li>
+      <li><a href="#states">States &amp; flows</a></li>
+      <li><a href="#decisions">Decisions</a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+    <!-- 0. INTRO -->
+    <section class="block" id="intro">
+      <h2 class="section-title">Claude Bridge — v3 design preview</h2>
+      <p class="section-intro">
+        The visual source of truth for the v3 pass. Every token, component,
+        flow, and open decision in <code>PLAN.md</code> is rendered here so
+        you can approve before any production code changes. Reply
+        <b>"ship it"</b> to accept defaults, or override like
+        <code>D6: C, D12: A</code>.
+      </p>
+      <div class="grid grid--3">
+        <div class="cb-card"><h3 class="subhead" style="margin-top:0;">Goal</h3><p style="margin:0;">Sub-50 ms state renders. ~10 ms status line. Motion that reads as intentional, not decorative.</p></div>
+        <div class="cb-card"><h3 class="subhead" style="margin-top:0;">Scope</h3><p style="margin:0;">Visual + brand refresh across webview, terminal, status bar, notifications, filenames, marketplace. No architecture rewrite.</p></div>
+        <div class="cb-card"><h3 class="subhead" style="margin-top:0;">Anti-goal</h3><p style="margin:0;">No new features. No competitive rename. Everything new here is polish on the wedge.</p></div>
+      </div>
+    </section>
+
+    <!-- 1. IDENTITY -->
+    <section class="block" id="identity">
+      <h2 class="section-title">1 · Identity</h2>
+      <p class="section-intro">Two VS Code chevrons hugging a Claude-brand spark. Chevrons are structure, spark is intent. Together: "VS Code bridge to Claude."</p>
+
+      <div class="grid grid--3">
+        <div class="cb-card" style="display:flex; align-items:center; justify-content:center; padding:32px;">
+          <svg viewBox="0 0 24 24" width="48" height="48" aria-hidden="true">
+            <path d="M8 6.5L3.5 12 8 17.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            <path d="M16 6.5L20.5 12 16 17.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            <path d="M12 7.5l1 3.5 3.5 1-3.5 1-1 3.5-1-3.5-3.5-1 3.5-1z" fill="var(--cb-accent)"/>
+          </svg>
+        </div>
+
+        <div class="cb-card" style="padding:0; overflow:hidden; background:linear-gradient(135deg,#1C1C1E,#111113);">
+          <div style="padding:20px; display:flex; align-items:center; gap:10px; color:#F0F0EC;">
+            <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+              <path d="M8 6.5L3.5 12 8 17.5" stroke="#4FC3F7" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+              <path d="M16 6.5L20.5 12 16 17.5" stroke="#4FC3F7" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+              <path d="M12 7.5l1 3.5 3.5 1-3.5 1-1 3.5-1-3.5-3.5-1 3.5-1z" fill="#D97757"/>
+            </svg>
+            <div style="font-size:14px; font-weight:600;">Claude Bridge</div>
+            <div style="margin-left:auto; font-size:10px; color:#8A8F98;">v3.0.0</div>
+          </div>
+          <div style="padding:0 20px 20px; font-size:11px; color:#8A8F98;">Marketplace &amp; banner lockup (cyan chevrons)</div>
+        </div>
+
+        <div class="cb-card" style="display:flex; flex-direction:column; gap:10px;">
+          <div style="display:flex; align-items:center; gap:8px;"><svg viewBox="0 0 24 24" width="16" height="16"><path d="M8 6.5L3.5 12 8 17.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M16 6.5L20.5 12 16 17.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M12 7.5l1 3.5 3.5 1-3.5 1-1 3.5-1-3.5-3.5-1 3.5-1z" fill="var(--cb-accent)"/></svg><span class="cb-hint">16 px — activity bar</span></div>
+          <div style="display:flex; align-items:center; gap:8px;"><svg viewBox="0 0 24 24" width="14" height="14"><path d="M8 6.5L3.5 12 8 17.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M16 6.5L20.5 12 16 17.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg><span class="cb-hint">14 px — chevrons only, no spark</span></div>
+          <div style="display:flex; align-items:center; gap:8px;"><svg viewBox="0 0 24 24" width="22" height="22"><path d="M8 6.5L3.5 12 8 17.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M16 6.5L20.5 12 16 17.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M12 7.5l1 3.5 3.5 1-3.5 1-1 3.5-1-3.5-3.5-1 3.5-1z" fill="var(--cb-accent)"/></svg><span class="cb-hint">22 px — sidebar header</span></div>
+        </div>
+      </div>
+
+      <h3 class="subhead">Marketplace banner</h3>
+      <div class="cb-card" style="padding:0; overflow:hidden; background:linear-gradient(135deg,#1C1C1E,#111113);">
+        <div style="padding:48px 60px; display:flex; align-items:center; gap:24px; color:#F0F0EC; position:relative;">
+          <svg viewBox="0 0 24 24" width="64" height="64" aria-hidden="true">
+            <path d="M8 6.5L3.5 12 8 17.5" stroke="#4FC3F7" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            <path d="M16 6.5L20.5 12 16 17.5" stroke="#4FC3F7" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+            <path d="M12 7.5l1 3.5 3.5 1-3.5 1-1 3.5-1-3.5-3.5-1 3.5-1z" fill="#D97757"/>
+          </svg>
+          <div>
+            <div style="font-size:36px; font-weight:700; letter-spacing:-0.6px;">Claude Bridge</div>
+            <div style="font-size:14px; color:#8A8F98;">Your VS Code selection, piped straight into Claude Code.</div>
+          </div>
+          <div style="position:absolute; left:0; bottom:0; width:100%; height:1px; background:linear-gradient(90deg,#D97757,#4FC3F7); opacity:0.7;"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. COLOR -->
+    <section class="block" id="color">
+      <h2 class="section-title">2 · Color</h2>
+      <p class="section-intro">Terracotta is <em>intent</em> (primary, active, selection segment). Cyan is <em>structure</em> (chevrons, git branch). Everything else inherits the VS Code theme.</p>
+
+      <h3 class="subhead">Brand</h3>
+      <div class="swatches">
+        <div class="swatch"><div class="chip" style="background:#D97757"></div><div class="meta"><span class="tok">--cb-accent</span><br/><span class="val">#D97757</span></div></div>
+        <div class="swatch"><div class="chip" style="background:#E48770"></div><div class="meta"><span class="tok">--cb-accent-hover</span><br/><span class="val">#E48770</span></div></div>
+        <div class="swatch"><div class="chip" style="background:#C86B4F"></div><div class="meta"><span class="tok">--cb-accent-active</span><br/><span class="val">#C86B4F</span></div></div>
+        <div class="swatch"><div class="chip" style="background:rgba(217,119,87,0.10)"></div><div class="meta"><span class="tok">--cb-accent-subtle</span><br/><span class="val">10% accent</span></div></div>
+        <div class="swatch"><div class="chip" style="background:#4FC3F7"></div><div class="meta"><span class="tok">--cb-bridge</span><br/><span class="val">#4FC3F7</span></div></div>
+      </div>
+
+      <h3 class="subhead">Neutrals (inherited from VS Code theme)</h3>
+      <div class="swatches">
+        <div class="swatch"><div class="chip" style="background:var(--cb-fg)"></div><div class="meta"><span class="tok">--cb-fg</span><br/><span class="val">vscode-foreground</span></div></div>
+        <div class="swatch"><div class="chip" style="background:var(--cb-muted)"></div><div class="meta"><span class="tok">--cb-muted</span><br/><span class="val">description fg</span></div></div>
+        <div class="swatch"><div class="chip" style="background:var(--cb-surface-raised)"></div><div class="meta"><span class="tok">--cb-surface-raised</span><br/><span class="val">3% white tint</span></div></div>
+        <div class="swatch"><div class="chip" style="background:var(--cb-border)"></div><div class="meta"><span class="tok">--cb-border</span><br/><span class="val">18% neutral</span></div></div>
+      </div>
+
+      <h3 class="subhead">Semantic</h3>
+      <div class="swatches">
+        <div class="swatch"><div class="chip" style="background:var(--cb-on)"></div><div class="meta"><span class="tok">--cb-on</span><br/><span class="val">installed / enabled</span></div></div>
+        <div class="swatch"><div class="chip" style="background:var(--cb-off)"></div><div class="meta"><span class="tok">--cb-off</span><br/><span class="val">disabled</span></div></div>
+        <div class="swatch"><div class="chip" style="background:var(--cb-warn)"></div><div class="meta"><span class="tok">--cb-warn</span><br/><span class="val">warning</span></div></div>
+      </div>
+    </section>
+
+    <!-- 3. TYPE -->
+    <section class="block" id="type">
+      <h2 class="section-title">3 · Typography</h2>
+      <p class="section-intro">Single system stack. No webfonts. Monospace only for data.</p>
+      <div class="cb-card">
+        <div class="type-row"><span class="tok">--cb-t-hero  · 20 / 600 / -0.2</span><div style="font-size:20px; font-weight:700; letter-spacing:-0.2px;">Your VS Code selection, piped into Claude Code.</div></div>
+        <div class="type-row"><span class="tok">--cb-t-title · 13 / 600 / +0.2</span><div style="font-size:13px; font-weight:600; letter-spacing:0.2px;">Claude Bridge</div></div>
+        <div class="type-row"><span class="tok">--cb-t-body  · 12 / 400 / 0   </span><div style="font-size:12px;">Context injection · Status line · Auto-open edited files</div></div>
+        <div class="type-row"><span class="tok">--cb-t-strong· 12 / 600 / 0   </span><div style="font-size:12px; font-weight:600;">Default preset</div></div>
+        <div class="type-row"><span class="tok">--cb-t-caps  · 10 / 600 / +0.6</span><div style="font-size:10px; font-weight:600; letter-spacing:0.6px; text-transform:uppercase; color:var(--cb-muted);">SEGMENTS</div></div>
+        <div class="type-row"><span class="tok">--cb-t-hint  · 10 / 400 / +0.1</span><div style="font-size:10px; color:var(--cb-muted);">Drag to reorder</div></div>
+        <div class="type-row"><span class="tok">--cb-t-xs    ·  9 / 500 / +0.3</span><div style="font-size:9px; color:var(--cb-muted); letter-spacing:0.3px; font-weight:500;">v3.0.0</div></div>
+        <div class="type-row"><span class="tok">--cb-t-mono  · 11 / 500 / mono</span><div style="font-family:var(--cb-font-mono); font-size:11px; font-weight:500;">Opus 4.7 · main · 24%</div></div>
+      </div>
+    </section>
+
+    <!-- 4. SPACING / RADIUS / ELEVATION -->
+    <section class="block" id="spacing">
+      <h2 class="section-title">4 · Spacing, radius, elevation</h2>
+
+      <h3 class="subhead">Spacing scale (4 px base)</h3>
+      <div class="cb-card">
+        <div class="spacing-ruler">
+          <div class="bar" style="width:4px;">&nbsp;</div><div class="cb-hint">--cb-space-1 · 4 px</div>
+          <div class="bar" style="width:8px;">&nbsp;</div><div class="cb-hint">--cb-space-2 · 8 px</div>
+          <div class="bar" style="width:12px;">&nbsp;</div><div class="cb-hint">--cb-space-3 · 12 px · default stack</div>
+          <div class="bar" style="width:16px;">&nbsp;</div><div class="cb-hint">--cb-space-4 · 16 px · card padding</div>
+          <div class="bar" style="width:24px;">&nbsp;</div><div class="cb-hint">--cb-space-5 · 24 px · section break</div>
+          <div class="bar" style="width:32px;">&nbsp;</div><div class="cb-hint">--cb-space-6 · 32 px · first-run card</div>
+          <div class="bar" style="width:48px;">&nbsp;</div><div class="cb-hint">--cb-space-7 · 48 px · empty state</div>
+        </div>
+      </div>
+
+      <h3 class="subhead">Radius</h3>
+      <div class="grid grid--4">
+        <div class="cb-card" style="display:flex; flex-direction:column; align-items:center; gap:10px;"><div style="width:60px; height:40px; background:var(--cb-accent-subtle); border-radius:3px; border:1px solid var(--cb-accent-border);"></div><span class="cb-hint">--cb-radius-sm · 3 px</span></div>
+        <div class="cb-card" style="display:flex; flex-direction:column; align-items:center; gap:10px;"><div style="width:60px; height:40px; background:var(--cb-accent-subtle); border-radius:6px; border:1px solid var(--cb-accent-border);"></div><span class="cb-hint">--cb-radius-md · 6 px · default</span></div>
+        <div class="cb-card" style="display:flex; flex-direction:column; align-items:center; gap:10px;"><div style="width:60px; height:40px; background:var(--cb-accent-subtle); border-radius:10px; border:1px solid var(--cb-accent-border);"></div><span class="cb-hint">--cb-radius-lg · 10 px · hero</span></div>
+        <div class="cb-card" style="display:flex; flex-direction:column; align-items:center; gap:10px;"><div style="width:80px; height:28px; background:var(--cb-accent); border-radius:9999px;"></div><span class="cb-hint">--cb-radius-full · pills, dots</span></div>
+      </div>
+
+      <h3 class="subhead">Elevation</h3>
+      <div class="grid grid--2">
+        <div class="cb-card" style="background:var(--cb-surface-raised); box-shadow:var(--cb-elev-1);">
+          <div class="cb-eyebrow"><h4>--cb-elev-1</h4><span>default card</span></div>
+          <p style="margin:0; color:var(--cb-muted); font-size:11px;">Inset 1 px border + 3 % tint on dark; single soft shadow on light.</p>
+        </div>
+        <div class="cb-card" style="background:var(--cb-accent-subtle); box-shadow:var(--cb-elev-2);">
+          <div class="cb-eyebrow"><h4>--cb-elev-2</h4><span>accent / hero</span></div>
+          <p style="margin:0; color:var(--cb-muted); font-size:11px;">Inset accent border + accent-subtle tint. First-run card, occasional emphasis.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 5. MOTION -->
+    <section class="block" id="motion">
+      <h2 class="section-title">5 · Motion</h2>
+      <p class="section-intro">Hover the rows to see each curve in action.</p>
+      <div class="cb-card">
+        <div class="motion-demo"><div class="dot hover"></div><span class="label">--cb-dur-fast / ease-out</span><span class="cb-hint">hover, focus, toggle (100 ms)</span></div>
+        <div class="motion-demo"><div class="dot pop"></div><span class="label">--cb-dur-fast / ease-spring</span><span class="cb-hint">toggle pop, pill activate</span></div>
+        <div class="motion-demo"><div class="dot" style="transition:transform 180ms cubic-bezier(0.16,1,0.3,1);"></div><span class="label">--cb-dur-normal</span><span class="cb-hint">section state, drag drop (180 ms)</span></div>
+      </div>
+    </section>
+
+    <!-- 6. COMPONENTS -->
+    <section class="block" id="components">
+      <h2 class="section-title">6 · Components</h2>
+      <p class="section-intro">Every component in every state. Hover to see the motion.</p>
+
+      <div class="grid grid--2">
+
+        <div class="slot">
+          <span class="slot__caption">Checkboxes</span>
+          <div style="display:flex; align-items:center; gap:16px;">
+            <span class="cb-check"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="cb-check" style="border-color:var(--cb-fg);"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="cb-hint">off · on · hover</span>
+          </div>
+        </div>
+
+        <div class="slot">
+          <span class="slot__caption">Buttons</span>
+          <div style="display:flex; flex-wrap:wrap; gap:8px; align-items:center;">
+            <button class="cb-btn cb-btn--primary">Install at User scope</button>
+            <button class="cb-btn cb-btn--ghost">Open full settings</button>
+            <button class="cb-btn cb-btn--danger">Uninstall everywhere</button>
+            <a class="cb-btn cb-btn--link" href="#">Advanced setup…</a>
+          </div>
+        </div>
+
+        <div class="slot">
+          <span class="slot__caption">Toggle rows</span>
+          <div class="cb-toggle-row"><span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-toggle-row__label">Context injection</span></div>
+          <div class="cb-toggle-row cb-toggle-row--stack"><span class="cb-check"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-toggle-row__label">Status line</span><span class="cb-toggle-row__hint">Off — Claude's status line renders without the bridge.</span></div>
+        </div>
+
+        <div class="slot">
+          <span class="slot__caption">Preset pills</span>
+          <div class="cb-preset" style="margin-bottom:8px;">
+            <button class="cb-pill">Minimal</button>
+            <button class="cb-pill on">Default</button>
+            <button class="cb-pill">Power</button>
+            <button class="cb-pill">Cost</button>
+            <button class="cb-pill cb-pill--custom">Custom</button>
+          </div>
+          <span class="cb-hint">Model + branch + context bar + selection.</span>
+        </div>
+
+        <div class="slot">
+          <span class="slot__caption">Segment rows</span>
+          <ul class="cb-seg-list">
+            <li class="cb-seg on"><span class="grip"><svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="3" cy="3" r="1"/><circle cx="3" cy="7" r="1"/><circle cx="3" cy="11" r="1"/><circle cx="7" cy="3" r="1"/><circle cx="7" cy="7" r="1"/><circle cx="7" cy="11" r="1"/></svg></span><span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-seg__label">Model</span><span class="cb-seg__example">Opus 4.7</span></li>
+            <li class="cb-seg drag-over"><span class="grip"><svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="3" cy="3" r="1"/><circle cx="3" cy="7" r="1"/><circle cx="3" cy="11" r="1"/><circle cx="7" cy="3" r="1"/><circle cx="7" cy="7" r="1"/><circle cx="7" cy="11" r="1"/></svg></span><span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-seg__label">Git branch · drag-over</span><span class="cb-seg__example">main</span></li>
+            <li class="cb-seg"><span class="grip"><svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="3" cy="3" r="1"/><circle cx="3" cy="7" r="1"/><circle cx="3" cy="11" r="1"/><circle cx="7" cy="3" r="1"/><circle cx="7" cy="7" r="1"/><circle cx="7" cy="11" r="1"/></svg></span><span class="cb-check"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-seg__label">Cost · off</span><span class="cb-seg__example">$0.12</span></li>
+          </ul>
+        </div>
+
+        <div class="slot">
+          <span class="slot__caption">Install badge</span>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <div class="cb-install"><span class="cb-install__dot"></span><span class="cb-install__text">Installed at User</span><a href="#" class="cb-install__manage">Manage ›</a></div>
+            <div class="cb-install"><span class="cb-install__dot" style="background:var(--cb-off);"></span><span class="cb-install__text">Not installed</span><a href="#" class="cb-install__manage">Get started ›</a></div>
+            <div class="cb-install"><span class="cb-install__dot"></span><span class="cb-install__text">Installed at 3 locations</span><a href="#" class="cb-install__manage">Manage ›</a></div>
+          </div>
+        </div>
+
+        <div class="slot">
+          <span class="slot__caption">Cards</span>
+          <div class="cb-card" style="margin-bottom:8px;">
+            <div class="cb-eyebrow"><h4>Default card</h4><span>--cb-elev-1</span></div>
+            <p style="margin:0; color:var(--cb-muted); font-size:12px;">Regular section container on the settings panel.</p>
+          </div>
+          <div class="cb-card cb-card--accent">
+            <div class="cb-eyebrow"><h4 style="color:var(--cb-accent)">Accent card</h4><span>--cb-elev-2</span></div>
+            <p style="margin:0 0 12px; color:var(--cb-fg); font-size:12px;">First-run, emphasis, primary CTA.</p>
+            <button class="cb-btn cb-btn--primary cb-btn--primary-lg">Install at User scope</button>
+          </div>
+        </div>
+
+        <div class="slot">
+          <span class="slot__caption">Eyebrow + separator</span>
+          <div class="cb-eyebrow"><h4>Status line</h4><span>Drag to reorder</span></div>
+          <hr class="cb-sep"/>
+          <div class="cb-eyebrow" style="margin-top:16px;"><h4>Install locations</h4><span>3 scopes</span></div>
+        </div>
+
+        <div class="slot">
+          <span class="slot__caption">Select + input</span>
+          <div style="display:flex; flex-direction:column; gap:10px;">
+            <select class="cb-select"><option>Basename</option><option>Truncated</option><option>Full path</option></select>
+            <input class="cb-input" value="500" />
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 7. SIDEBAR -->
+    <section class="block" id="sidebar">
+      <h2 class="section-title">7 · Sidebar dashboard</h2>
+      <p class="section-intro">Always single-column, fits 280–360 px. Rhythm via <code>--cb-space-3</code>. No cards at the top — those belong in the settings panel.</p>
+
+      <div style="display:flex; gap:32px; flex-wrap:wrap;">
+        <div>
+          <div class="cb-hint" style="margin-bottom:8px;">Default state (installed, no selection)</div>
+          <div class="sidebar-frame">
+            <div class="sidebar-frame__title"><span>Claude Bridge: Dashboard</span><span style="color:var(--cb-muted)">⚙</span></div>
+            <div class="sidebar">
+              <div class="brand">
+                <svg viewBox="0 0 24 24" width="22" height="22"><path d="M8 6.5L3.5 12 8 17.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M16 6.5L20.5 12 16 17.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M12 7.5l1 3.5 3.5 1-3.5 1-1 3.5-1-3.5-3.5-1 3.5-1z" fill="var(--cb-accent)"/></svg>
+                <span class="brand__title">Claude Bridge</span>
+                <span class="brand__version">v3.0.0</span>
+              </div>
+
+              <div>
+                <div class="cb-toggle-row"><span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-toggle-row__label">Context injection</span></div>
+                <div class="cb-toggle-row"><span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-toggle-row__label">Status line</span></div>
+                <div class="cb-toggle-row cb-toggle-row--stack"><span class="cb-check"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-toggle-row__label">Auto-open edited files</span><span class="cb-toggle-row__hint">Off — files Claude edits stay closed.</span></div>
+              </div>
+
+              <div>
+                <div class="cb-eyebrow"><h4>Preset</h4></div>
+                <div class="cb-preset"><button class="cb-pill">Minimal</button><button class="cb-pill on">Default</button><button class="cb-pill">Power</button><button class="cb-pill">Cost</button></div>
+                <div class="cb-hint" style="margin-top:6px;">Model + branch + context bar + selection.</div>
+              </div>
+
+              <div>
+                <div class="cb-eyebrow"><h4>Segments</h4><span>Drag to reorder</span></div>
+                <ul class="cb-seg-list">
+                  <li class="cb-seg on"><span class="grip"><svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="3" cy="3" r="1"/><circle cx="3" cy="7" r="1"/><circle cx="3" cy="11" r="1"/><circle cx="7" cy="3" r="1"/><circle cx="7" cy="7" r="1"/><circle cx="7" cy="11" r="1"/></svg></span><span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-seg__label">Model</span><span class="cb-seg__example">Opus 4.7</span></li>
+                  <li class="cb-seg on"><span class="grip"><svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="3" cy="3" r="1"/><circle cx="3" cy="7" r="1"/><circle cx="3" cy="11" r="1"/><circle cx="7" cy="3" r="1"/><circle cx="7" cy="7" r="1"/><circle cx="7" cy="11" r="1"/></svg></span><span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-seg__label">Git branch</span><span class="cb-seg__example">main</span></li>
+                  <li class="cb-seg on"><span class="grip"><svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="3" cy="3" r="1"/><circle cx="3" cy="7" r="1"/><circle cx="3" cy="11" r="1"/><circle cx="7" cy="3" r="1"/><circle cx="7" cy="7" r="1"/><circle cx="7" cy="11" r="1"/></svg></span><span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-seg__label">Context bar</span><span class="cb-seg__example">████░░ 24%</span></li>
+                  <li class="cb-seg on"><span class="grip"><svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="3" cy="3" r="1"/><circle cx="3" cy="7" r="1"/><circle cx="3" cy="11" r="1"/><circle cx="7" cy="3" r="1"/><circle cx="7" cy="7" r="1"/><circle cx="7" cy="11" r="1"/></svg></span><span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-seg__label">Tokens used</span><span class="cb-seg__example">45k</span></li>
+                  <li class="cb-seg"><span class="grip"><svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="3" cy="3" r="1"/><circle cx="3" cy="7" r="1"/><circle cx="3" cy="11" r="1"/><circle cx="7" cy="3" r="1"/><circle cx="7" cy="7" r="1"/><circle cx="7" cy="11" r="1"/></svg></span><span class="cb-check"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-seg__label">Cost</span><span class="cb-seg__example">$0.12</span></li>
+                  <li class="cb-seg"><span class="grip"><svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="3" cy="3" r="1"/><circle cx="3" cy="7" r="1"/><circle cx="3" cy="11" r="1"/><circle cx="7" cy="3" r="1"/><circle cx="7" cy="7" r="1"/><circle cx="7" cy="11" r="1"/></svg></span><span class="cb-check"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-seg__label">Lines changed</span><span class="cb-seg__example">+42 −3</span></li>
+                  <li class="cb-seg"><span class="grip"><svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="3" cy="3" r="1"/><circle cx="3" cy="7" r="1"/><circle cx="3" cy="11" r="1"/><circle cx="7" cy="3" r="1"/><circle cx="7" cy="7" r="1"/><circle cx="7" cy="11" r="1"/></svg></span><span class="cb-check"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-seg__label">Rate limits</span><span class="cb-seg__example">5h:12% 7d:3%</span></li>
+                  <li class="cb-seg on"><span class="grip"><svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="3" cy="3" r="1"/><circle cx="3" cy="7" r="1"/><circle cx="3" cy="11" r="1"/><circle cx="7" cy="3" r="1"/><circle cx="7" cy="7" r="1"/><circle cx="7" cy="11" r="1"/></svg></span><span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-seg__label">Editor selection</span><span class="cb-seg__example">app.ts L12–45</span></li>
+                </ul>
+              </div>
+
+              <div class="cb-install"><span class="cb-install__dot"></span><span class="cb-install__text">Installed at User</span><a href="#" class="cb-install__manage">Manage ›</a></div>
+
+              <button class="cb-btn cb-btn--ghost" style="width:100%;">Open full settings</button>
+            </div>
+          </div>
+        </div>
+
+        <div>
+          <div class="cb-hint" style="margin-bottom:8px;">First-run state</div>
+          <div class="sidebar-frame">
+            <div class="sidebar-frame__title"><span>Claude Bridge: Dashboard</span><span style="color:var(--cb-muted)">⚙</span></div>
+            <div class="sidebar">
+              <div class="brand">
+                <svg viewBox="0 0 24 24" width="22" height="22"><path d="M8 6.5L3.5 12 8 17.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M16 6.5L20.5 12 16 17.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M12 7.5l1 3.5 3.5 1-3.5 1-1 3.5-1-3.5-3.5-1 3.5-1z" fill="var(--cb-accent)"/></svg>
+                <span class="brand__title">Claude Bridge</span>
+                <span class="brand__version">v3.0.0</span>
+              </div>
+
+              <div class="cb-dim">
+                <div class="cb-toggle-row"><span class="cb-check"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-toggle-row__label">Context injection</span></div>
+                <div class="cb-toggle-row"><span class="cb-check"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-toggle-row__label">Status line</span></div>
+                <div class="cb-toggle-row"><span class="cb-check"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-toggle-row__label">Auto-open edited files</span></div>
+              </div>
+
+              <div class="cb-card cb-card--accent">
+                <h4 style="margin:0 0 6px; color:var(--cb-accent); font-size:13px; letter-spacing:0.2px;">Get started</h4>
+                <p style="margin:0 0 14px; font-size:12px; line-height:1.5;">Install the bridge into Claude Code to start piping selections.</p>
+                <button class="cb-btn cb-btn--primary cb-btn--primary-lg" style="width:100%;">Install at User scope</button>
+                <div style="margin-top:10px;"><a class="cb-btn cb-btn--link" href="#">Advanced setup…</a></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 8. SETTINGS PANEL -->
+    <section class="block" id="settings">
+      <h2 class="section-title">8 · Settings panel</h2>
+      <p class="section-intro">Single scroll. Cards stacked. Sticky scope switcher. Max 720 px.</p>
+
+      <div class="panel-frame">
+        <div class="panel-frame__tab">Claude Bridge — settings</div>
+        <div class="panel">
+          <div class="panel__scope">
+            <div style="display:flex; gap:4px;"><button class="cb-pill on">Global</button><button class="cb-pill">Workspace</button></div>
+            <div class="cb-hint">Sources: 7 global · 0 workspace</div>
+          </div>
+
+          <div class="hero">
+            <svg viewBox="0 0 24 24" width="32" height="32"><path d="M8 6.5L3.5 12 8 17.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M16 6.5L20.5 12 16 17.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M12 7.5l1 3.5 3.5 1-3.5 1-1 3.5-1-3.5-3.5-1 3.5-1z" fill="var(--cb-accent)"/></svg>
+            <div>
+              <div class="hero__title">Claude Bridge</div>
+              <div class="hero__tag">Your VS Code selection, piped straight into Claude Code.</div>
+            </div>
+            <div style="margin-left:auto;"><div class="cb-install"><span class="cb-install__dot"></span><span class="cb-install__text">Installed at User</span></div></div>
+          </div>
+
+          <div class="cb-card">
+            <div class="cb-eyebrow"><h4>Master toggles</h4></div>
+            <div class="cb-toggle-row"><span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-toggle-row__label">Context injection</span></div>
+            <div class="cb-toggle-row"><span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-toggle-row__label">Status line</span></div>
+            <div class="cb-toggle-row"><span class="cb-check"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-toggle-row__label">Auto-open edited files</span></div>
+          </div>
+
+          <div class="cb-card">
+            <div class="cb-eyebrow"><h4>Preset</h4><span>Built-ins update as you tweak.</span></div>
+            <div class="cb-preset" style="margin-bottom:12px;"><button class="cb-pill">Minimal</button><button class="cb-pill on">Default</button><button class="cb-pill">Power</button><button class="cb-pill">Cost</button></div>
+            <div style="display:flex; gap:12px; font-size:11px;"><a class="cb-btn cb-btn--link" href="#">Export to JSON…</a><span style="color:var(--cb-muted);">·</span><a class="cb-btn cb-btn--link" href="#">Import JSON…</a><span style="color:var(--cb-muted);">·</span><a class="cb-btn cb-btn--link" href="#" style="color:var(--cb-muted);">Reset to default</a></div>
+          </div>
+
+          <div class="cb-card">
+            <div class="cb-eyebrow"><h4>Status line</h4><span>Drag to reorder</span></div>
+            <ul class="cb-seg-list" style="margin-bottom:16px;">
+              <li class="cb-seg on"><span class="grip"><svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="3" cy="3" r="1"/><circle cx="3" cy="7" r="1"/><circle cx="3" cy="11" r="1"/><circle cx="7" cy="3" r="1"/><circle cx="7" cy="7" r="1"/><circle cx="7" cy="11" r="1"/></svg></span><span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-seg__label">Model</span><span class="cb-seg__example">Opus 4.7</span></li>
+              <li class="cb-seg on"><span class="grip"><svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="3" cy="3" r="1"/><circle cx="3" cy="7" r="1"/><circle cx="3" cy="11" r="1"/><circle cx="7" cy="3" r="1"/><circle cx="7" cy="7" r="1"/><circle cx="7" cy="11" r="1"/></svg></span><span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-seg__label">Git branch</span><span class="cb-seg__example">main</span></li>
+              <li class="cb-seg on"><span class="grip"><svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="3" cy="3" r="1"/><circle cx="3" cy="7" r="1"/><circle cx="3" cy="11" r="1"/><circle cx="7" cy="3" r="1"/><circle cx="7" cy="7" r="1"/><circle cx="7" cy="11" r="1"/></svg></span><span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-seg__label">Context bar</span><span class="cb-seg__example">████░░░░░░ 24%</span></li>
+              <li class="cb-seg on"><span class="grip"><svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="3" cy="3" r="1"/><circle cx="3" cy="7" r="1"/><circle cx="3" cy="11" r="1"/><circle cx="7" cy="3" r="1"/><circle cx="7" cy="7" r="1"/><circle cx="7" cy="11" r="1"/></svg></span><span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-seg__label">Tokens used</span><span class="cb-seg__example">45k</span></li>
+              <li class="cb-seg on"><span class="grip"><svg width="10" height="14" viewBox="0 0 10 14" fill="currentColor"><circle cx="3" cy="3" r="1"/><circle cx="3" cy="7" r="1"/><circle cx="3" cy="11" r="1"/><circle cx="7" cy="3" r="1"/><circle cx="7" cy="7" r="1"/><circle cx="7" cy="11" r="1"/></svg></span><span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-seg__label">Editor selection</span><span class="cb-seg__example">app.ts L12–45</span></li>
+            </ul>
+
+            <div class="cb-eyebrow"><h4>Path style</h4></div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:16px;">
+              <select class="cb-select"><option>Basename</option><option>Truncated</option><option>Full</option></select>
+              <input class="cb-input" value="30" />
+            </div>
+
+            <div class="cb-eyebrow"><h4>Preview</h4></div>
+            <div class="terminal" style="font-size:11px; padding:10px 14px;"><span class="bold">Opus 4.7</span><span class="dim"> · </span><span class="cy">main</span><span class="dim"> · </span><span class="gr">████░░░░░░ 24%</span><span class="dim"> · </span><span class="dim">45k</span><span class="dim"> · </span><span class="or"><b>app.ts</b> L12–45</span><span class="dim"> (33)</span></div>
+          </div>
+
+          <div class="cb-card">
+            <div class="cb-eyebrow"><h4>Context injection</h4></div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:12px;">
+              <div><label style="display:block; font-size:10px; font-weight:600; letter-spacing:0.6px; text-transform:uppercase; color:var(--cb-muted); margin-bottom:4px;">Max lines</label><input class="cb-input" value="500" style="width:100%;" /></div>
+              <div><label style="display:block; font-size:10px; font-weight:600; letter-spacing:0.6px; text-transform:uppercase; color:var(--cb-muted); margin-bottom:4px;">Show partial line</label><select class="cb-select"><option>On</option><option>Off</option></select></div>
+            </div>
+            <div class="cb-eyebrow" style="margin-top:12px;"><h4>Excluded patterns</h4></div>
+            <div style="display:flex; gap:6px; flex-wrap:wrap;">
+              <span class="cb-seg__example" style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px;">.env*<svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.4" fill="none"><path d="M2 2l6 6M8 2l-6 6"/></svg></span>
+              <span class="cb-seg__example" style="display:inline-flex; align-items:center; gap:6px; padding:4px 10px;">**/secrets/**<svg width="10" height="10" viewBox="0 0 10 10" stroke="currentColor" stroke-width="1.4" fill="none"><path d="M2 2l6 6M8 2l-6 6"/></svg></span>
+              <a class="cb-btn cb-btn--link" href="#">+ Add pattern</a>
+            </div>
+          </div>
+
+          <div class="cb-card">
+            <div class="cb-eyebrow"><h4>Install locations</h4></div>
+            <div style="display:grid; grid-template-columns:1fr auto auto; gap:8px 16px; align-items:center; font-size:12px;">
+              <span>User</span><span class="cb-install__dot" style="justify-self:center;"></span><button class="cb-btn cb-btn--ghost" style="height:24px; padding:0 10px; font-size:11px;">Uninstall</button>
+              <span>Project</span><span style="color:var(--cb-muted); justify-self:center;">—</span><button class="cb-btn cb-btn--ghost" style="height:24px; padding:0 10px; font-size:11px;">Install</button>
+              <span>Project (local)</span><span style="color:var(--cb-muted); justify-self:center;">—</span><button class="cb-btn cb-btn--ghost" style="height:24px; padding:0 10px; font-size:11px;">Install</button>
+            </div>
+          </div>
+
+          <div class="cb-card" style="border-left:3px solid var(--cb-off);">
+            <div class="cb-eyebrow"><h4 style="color:var(--cb-off);">Danger zone</h4></div>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+              <button class="cb-btn cb-btn--danger">Uninstall everywhere</button>
+              <button class="cb-btn cb-btn--danger">Reset all settings</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 9. STATUS LINE -->
+    <section class="block" id="statusline">
+      <h2 class="section-title">9 · Terminal status line</h2>
+      <p class="section-intro">Rendered by <code>~/.claude/claude-bridge-statusline.sh</code>. The selection segment is the one place accent appears.</p>
+
+      <h3 class="subhead">Default</h3>
+      <div class="terminal"><span class="bold">Opus 4.7</span><span class="dim"> · </span><span class="cy">main</span><span class="dim"> · </span><span class="gr">████░░░░░░ 24%</span><span class="dim"> · </span><span class="dim">45k</span><span class="dim"> · </span><span class="dim">$0.12</span><span class="dim"> · </span><span class="gr">+42</span> <span class="rd">−3</span><span class="dim"> · </span><span class="dim">5h:12% 7d:3%</span><span class="dim"> · </span><span class="or"><b>app.ts</b> L12–45</span><span class="dim"> (33)</span></div>
+
+      <h3 class="subhead">Narrow terminal · smart truncation</h3>
+      <div class="terminal" style="width:420px;"><span class="bold">Opus 4.7</span><span class="dim"> · </span><span class="cy">main</span><span class="dim"> · </span><span class="gr">████░░░░░░ 24%</span><span class="dim"> · </span><span class="dim">45k</span><span class="dim"> · </span><span class="or"><b>app.ts</b> L12–45</span></div>
+
+      <h3 class="subhead">High context (≥ 90 %)</h3>
+      <div class="terminal"><span class="bold">Opus 4.7</span><span class="dim"> · </span><span class="cy">main</span><span class="dim"> · </span><span class="rd">██████████ 92%</span><span class="dim"> · </span><span class="dim">180k</span><span class="dim"> · </span><span class="or"><b>app.ts</b> L12–45</span></div>
+
+      <p class="note">OSC-8 link on the selection: supported terminals (iTerm, WezTerm, recent macOS Terminal) make it clickable, jumping to the file at the exact line.</p>
+    </section>
+
+    <!-- 10. STATUS BAR -->
+    <section class="block" id="statusbar">
+      <h2 class="section-title">10 · VS Code status-bar item</h2>
+      <p class="section-intro">Left side, priority 50. Four states.</p>
+
+      <div class="grid grid--2">
+        <div class="state-card"><h4>Idle — no selection</h4><div class="vsc-statusbar" style="margin-top:10px;"><div class="segment">🔗 Claude Bridge</div></div></div>
+        <div class="state-card"><h4>Selection active</h4><div class="vsc-statusbar" style="margin-top:10px;"><div class="segment" style="color:var(--cb-on);"><span style="width:8px; height:8px; border-radius:50%; background:currentColor; display:inline-block;"></span>app.ts L12–45</div></div></div>
+        <div class="state-card"><h4>Uninstalled</h4><div class="vsc-statusbar" style="margin-top:10px;"><div class="segment" style="color:var(--cb-warn);">⚠ Claude Bridge</div></div></div>
+        <div class="state-card"><h4>Error</h4><div class="vsc-statusbar" style="margin-top:10px;"><div class="segment" style="color:var(--cb-off);">✕ Claude Bridge</div></div></div>
+      </div>
+
+      <h3 class="subhead">Tooltip (markdown, on hover)</h3>
+      <div class="tooltip-pop">
+        <h5>
+          <svg viewBox="0 0 24 24" width="14" height="14"><path d="M8 6.5L3.5 12 8 17.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M16 6.5L20.5 12 16 17.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M12 7.5l1 3.5 3.5 1-3.5 1-1 3.5-1-3.5-3.5-1 3.5-1z" fill="var(--cb-accent)"/></svg>
+          Claude Bridge <span class="ver">v3.0.0</span>
+        </h5>
+        <div class="r"><span class="dot"></span><b>Context injection</b><span style="margin-left:auto; color:var(--cb-muted);">on</span></div>
+        <div class="r"><span class="dot"></span><b>Status line</b><span style="margin-left:auto; color:var(--cb-muted);">on</span></div>
+        <div class="r"><span class="dot off"></span><b>Auto-open</b><span style="margin-left:auto; color:var(--cb-muted);">off</span></div>
+        <hr/>
+        <div class="caps">SELECTION</div>
+        <div class="path">src/extension.ts</div>
+        <div class="italic" style="font-size:11px;">lines 12–45 · 33 lines</div>
+        <div class="r" style="margin-top:6px;"><span class="dot"></span><span class="italic">Delivered to Claude Code 4s ago.</span></div>
+        <hr/>
+        <div class="actions"><a>Open dashboard</a><span style="color:var(--cb-muted);">·</span><a>Preview</a><span style="color:var(--cb-muted);">·</span><a>Settings</a></div>
+      </div>
+    </section>
+
+    <!-- 11. NOTIFICATIONS -->
+    <section class="block" id="notifications">
+      <h2 class="section-title">11 · Notifications</h2>
+      <p class="section-intro">One toast per action. Voice: <code>Claude Bridge: &lt;past-tense verb&gt; &lt;object&gt; at &lt;location&gt;.</code></p>
+      <div class="toast-stack">
+        <div class="toast success"><b>Claude Bridge:</b> installed at User. Ready to pipe selections.</div>
+        <div class="toast success"><b>Claude Bridge:</b> exported preset to <code>claude-bridge-preset.json</code>.</div>
+        <div class="toast info"><b>Claude Bridge:</b> selection cleared.</div>
+        <div class="toast info"><b>Claude Bridge:</b> cleared 2 workspace overrides. Now using global defaults.</div>
+        <div class="toast warn"><b>Claude Bridge:</b> that scope isn't installed in any open folder.</div>
+        <div class="toast err"><b>Claude Bridge:</b> preset file is missing the <code>segments</code> array.</div>
+      </div>
+    </section>
+
+    <!-- 12. BACKEND -->
+    <section class="block" id="backend">
+      <h2 class="section-title">12 · Backend surfaces</h2>
+      <p class="section-intro">Every string a user can see or script against — all on-brand.</p>
+
+      <div class="grid grid--2">
+        <div class="cb-card">
+          <div class="cb-eyebrow"><h4>Files on disk</h4><span>~/ and ~/.claude/</span></div>
+          <div class="flist">
+            ~/<b>.claude-vscode-selection.json</b> <i>· full selection payload</i><br/>
+            ~/<b>.claude-vscode-context.json</b> <i>· hook context blob</i><br/>
+            ~/<b>.claude-vscode-statusline.txt</b> <i>· rendered selection chip</i><br/>
+            ~/<b>.claude-vscode-context-sent</b> <i>· last-sent mtime marker</i><br/>
+            ~/<b>.claude-vscode-modified.log</b> <i>· append-only modified files</i><br/>
+            ~/.claude/<b>claude-bridge-statusline.sh</b> <i>· generated script</i><br/>
+            &lt;project&gt;/.claude/<b>.claude-bridge-marker</b> <i>· defer-marker</i>
+          </div>
+        </div>
+
+        <div class="cb-card">
+          <div class="cb-eyebrow"><h4>Settings keys</h4><span>claudeBridge.*</span></div>
+          <div class="flist">
+            claudeBridge.<b>contextInjection</b> <i>boolean</i><br/>
+            claudeBridge.<b>statusLine</b> <i>boolean</i><br/>
+            claudeBridge.<b>autoOpenModifiedFiles</b> <i>boolean</i><br/>
+            claudeBridge.<b>maxLines</b> <i>number</i><br/>
+            claudeBridge.<b>statusLineMaxPath</b> <i>number</i><br/>
+            claudeBridge.<b>statusLinePathStyle</b> <i>"basename" | "truncated" | "full"</i><br/>
+            claudeBridge.<b>showPartialLineContext</b> <i>boolean</i><br/>
+            claudeBridge.<b>statusLineSegments</b> <i>SegmentEntry[]</i><br/>
+            claudeBridge.<b>activePreset</b> <i>string</i><br/>
+            claudeBridge.<b>excludedPatterns</b> <i>string[]</i>
+          </div>
+        </div>
+
+        <div class="cb-card">
+          <div class="cb-eyebrow"><h4>Command palette</h4><span>13 commands</span></div>
+          <div class="flist" style="font-size:11px;">
+            Claude Bridge: <b>Open Dashboard</b><br/>
+            Claude Bridge: <b>Open Full Settings</b><br/>
+            Claude Bridge: <b>Install at User…</b><br/>
+            Claude Bridge: <b>Install at Project…</b><br/>
+            Claude Bridge: <b>Install at Project (local)…</b><br/>
+            Claude Bridge: <b>Uninstall…</b><br/>
+            Claude Bridge: <b>Uninstall Everywhere</b><br/>
+            Claude Bridge: <b>Clear Selection</b><br/>
+            Claude Bridge: <b>Preview Current Selection</b><br/>
+            Claude Bridge: <b>Export Preset to JSON…</b><br/>
+            Claude Bridge: <b>Import Preset from JSON…</b><br/>
+            Claude Bridge: <b>Diagnose Auto-open</b><br/>
+            Claude Bridge: <b>Clear Workspace Overrides</b>
+          </div>
+        </div>
+
+        <div class="cb-card">
+          <div class="cb-eyebrow"><h4>Output channel — "Claude Bridge"</h4></div>
+          <pre style="margin:0; font-family:var(--cb-font-mono); font-size:10.5px; line-height:1.6; color:var(--cb-muted); white-space:pre-wrap;">[14:03:27.418] activate v3.0.0
+[14:03:27.423] installAt(user) additions=[hook, statusLine, autoOpen]
+[14:03:27.451] writeStatusLineScript wrote 5 733 bytes
+[14:04:01.006] onDidChangeConfiguration: claudeBridge.statusLineSegments
+[14:04:01.058] regenerate statusLine script</pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- 13. MARKETPLACE -->
+    <section class="block" id="marketplace">
+      <h2 class="section-title">13 · Marketplace listing</h2>
+      <p class="section-intro">First impression on marketplace.visualstudio.com.</p>
+
+      <div class="cb-card" style="padding:0; overflow:hidden;">
+        <div style="padding:24px 28px; background:linear-gradient(135deg,#1C1C1E,#111113); display:flex; align-items:center; gap:16px;">
+          <svg viewBox="0 0 24 24" width="48" height="48"><path d="M8 6.5L3.5 12 8 17.5" stroke="#4FC3F7" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M16 6.5L20.5 12 16 17.5" stroke="#4FC3F7" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/><path d="M12 7.5l1 3.5 3.5 1-3.5 1-1 3.5-1-3.5-3.5-1 3.5-1z" fill="#D97757"/></svg>
+          <div>
+            <div style="font-size:22px; font-weight:700; color:#F0F0EC;">Claude Code – VS Code Bridge</div>
+            <div style="font-size:13px; color:#8A8F98; margin-top:2px;">Pipes your VS Code selection into Claude Code. Select code, ask a question — Claude sees it automatically.</div>
+            <div style="font-size:11px; color:#8A8F98; margin-top:10px;">by <b style="color:#E6E6E6;">Daniel-Manea</b> · v3.0.0 · MIT</div>
+          </div>
+        </div>
+        <div style="padding:20px 28px;">
+          <div style="font-size:14px; font-weight:600; margin-bottom:10px;">Your VS Code selection, piped straight into Claude Code.</div>
+          <p style="margin:0 0 12px; color:var(--cb-muted); line-height:1.6;">Select code in VS Code, ask Claude Code a question in your terminal — your selection is already in context. No copy-paste, no <code>@</code>-mentions, no extra steps. Everything runs locally — no MCP server, no network, no telemetry.</p>
+          <div style="display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:12px; margin-top:16px;">
+            <div style="font-size:11px;"><b>Automatic context injection.</b><br/><span style="color:var(--cb-muted);">Claude sees your selection on every prompt.</span></div>
+            <div style="font-size:11px;"><b>Nine configurable segments.</b><br/><span style="color:var(--cb-muted);">Drag to reorder, toggle to hide.</span></div>
+            <div style="font-size:11px;"><b>Preset profiles.</b><br/><span style="color:var(--cb-muted);">Minimal, Default, Power, Cost.</span></div>
+            <div style="font-size:11px;"><b>Live preview.</b><br/><span style="color:var(--cb-muted);">Status line renders as you configure.</span></div>
+            <div style="font-size:11px;"><b>10 ms status line.</b><br/><span style="color:var(--cb-muted);">Zero-fork bash, no flicker.</span></div>
+            <div style="font-size:11px;"><b>Local only.</b><br/><span style="color:var(--cb-muted);">No MCP, no telemetry, no network.</span></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 14. STATES -->
+    <section class="block" id="states">
+      <h2 class="section-title">14 · States &amp; flows</h2>
+      <p class="section-intro">Eight deterministic variants of the sidebar/settings pair.</p>
+      <div class="grid grid--3">
+        <div class="state-card"><h4>S1 · First-run</h4><p>Setup card, toggles dimmed.</p></div>
+        <div class="state-card"><h4>S2 · Installed at User</h4><p>Normal dashboard, compact badge at bottom.</p></div>
+        <div class="state-card"><h4>S3 · Selection active</h4><p>Status-bar dot green + path, segment chip live.</p></div>
+        <div class="state-card"><h4>S4 · Project install</h4><p>Badge: "Installed at Project".</p></div>
+        <div class="state-card"><h4>S5 · Workspace overrides</h4><p>Small ribbon: "3 workspace overrides active".</p></div>
+        <div class="state-card"><h4>S6 · Multi-install</h4><p>Badge: "Installed at 3 locations" with expand toggle.</p></div>
+        <div class="state-card"><h4>S7 · Context off</h4><p>Toggle off; injection disabled; hint under row.</p></div>
+        <div class="state-card"><h4>S8 · No workspace</h4><p>Sidebar dimmed; ghost message "Open a folder".</p></div>
+      </div>
+    </section>
+
+    <!-- 15. DECISIONS -->
+    <section class="block" id="decisions">
+      <h2 class="section-title">15 · Open decisions</h2>
+      <p class="section-intro">Pick one per row. My pick is highlighted. Reply <b>"ship it"</b> to accept all or call out overrides.</p>
+
+      <div class="decision">
+        <div class="decision__head"><div><div class="decision__id">D1</div><div class="decision__title">Accent usage</div></div></div>
+        <div class="decision__opts">
+          <div class="opt"><div class="opt__label"><span class="opt__letter">A · fill everywhere</span></div><div style="display:flex; gap:8px; align-items:center;"><span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div></div>
+          <div class="opt pick"><div class="opt__label"><span class="opt__letter">B · focus &amp; primary only</span><span class="opt__pick">pick</span></div><div style="display:flex; gap:8px; align-items:center;"><span class="cb-check"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-check on"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-check"><svg class="check-svg" viewBox="0 0 12 12" fill="none"><path d="M2 6l2.5 2.5L10 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div></div>
+          <div class="opt"><div class="opt__label"><span class="opt__letter">C · no accent</span></div><div style="display:flex; gap:8px; align-items:center;"><span class="cb-check" style="background:var(--cb-fg); border-color:var(--cb-fg);"><svg class="check-svg" viewBox="0 0 12 12" fill="none" style="clip-path:inset(0 0 0 0);"><path d="M2 6l2.5 2.5L10 3" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span class="cb-check" style="background:var(--cb-fg); border-color:var(--cb-fg);"><svg class="check-svg" viewBox="0 0 12 12" fill="none" style="clip-path:inset(0 0 0 0);"><path d="M2 6l2.5 2.5L10 3" stroke="#000" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span></div></div>
+        </div>
+      </div>
+
+      <div class="decision">
+        <div class="decision__head"><div><div class="decision__id">D3</div><div class="decision__title">Section separation</div></div></div>
+        <div class="decision__opts">
+          <div class="opt"><div class="opt__label"><span class="opt__letter">A · flex gaps</span></div>
+            <div style="display:flex; flex-direction:column; gap:12px;"><span>Toggles</span><span>Preset</span><span>Segments</span></div>
+          </div>
+          <div class="opt pick"><div class="opt__label"><span class="opt__letter">B · eyebrow + gap</span><span class="opt__pick">pick</span></div>
+            <div style="display:flex; flex-direction:column; gap:12px;">
+              <div><div class="cb-eyebrow" style="margin-bottom:4px;"><h4>Toggles</h4></div>Row · Row · Row</div>
+              <div><div class="cb-eyebrow" style="margin-bottom:4px;"><h4>Preset</h4></div>Pill · Pill</div>
+              <div><div class="cb-eyebrow" style="margin-bottom:4px;"><h4>Segments</h4></div>Row · Row</div>
+            </div>
+          </div>
+          <div class="opt"><div class="opt__label"><span class="opt__letter">C · elevated cards</span></div>
+            <div style="display:flex; flex-direction:column; gap:8px;">
+              <div class="cb-card" style="padding:8px;">Toggles</div>
+              <div class="cb-card" style="padding:8px;">Preset</div>
+              <div class="cb-card" style="padding:8px;">Segments</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="decision">
+        <div class="decision__head"><div><div class="decision__id">D6</div><div class="decision__title">Preset selector</div></div></div>
+        <div class="decision__opts">
+          <div class="opt"><div class="opt__label"><span class="opt__letter">A · dropdown</span></div><select class="cb-select"><option>Default</option></select></div>
+          <div class="opt pick"><div class="opt__label"><span class="opt__letter">B · pill group</span><span class="opt__pick">pick</span></div>
+            <div class="cb-preset"><button class="cb-pill">Min</button><button class="cb-pill on">Default</button><button class="cb-pill">Power</button><button class="cb-pill">Cost</button></div>
+          </div>
+          <div class="opt"><div class="opt__label"><span class="opt__letter">C · segmented</span></div>
+            <div style="display:grid; grid-template-columns:repeat(4, 1fr); font-size:11px; border:1px solid var(--cb-border); border-radius:var(--cb-radius-md); overflow:hidden; text-align:center;">
+              <span style="padding:6px 0;">Min</span>
+              <span style="padding:6px 0; background:var(--cb-accent); color:white; font-weight:600;">Default</span>
+              <span style="padding:6px 0;">Power</span>
+              <span style="padding:6px 0;">Cost</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="decision">
+        <div class="decision__head"><div><div class="decision__id">D8</div><div class="decision__title">Install state when complete</div></div></div>
+        <div class="decision__opts">
+          <div class="opt"><div class="opt__label"><span class="opt__letter">A · hide</span></div><div class="cb-hint">Nothing shown. Available in settings panel only.</div></div>
+          <div class="opt pick"><div class="opt__label"><span class="opt__letter">B · compact badge</span><span class="opt__pick">pick</span></div>
+            <div class="cb-install"><span class="cb-install__dot"></span><span class="cb-install__text">Installed at User</span><a href="#" class="cb-install__manage">Manage ›</a></div>
+          </div>
+          <div class="opt"><div class="opt__label"><span class="opt__letter">C · inline ribbon</span></div>
+            <div style="padding:6px 10px; background:rgba(115,201,145,0.1); border-left:3px solid var(--cb-on); font-size:11px; border-radius:var(--cb-radius-sm);">Project install active — user-scope hook standing down.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="decision">
+        <div class="decision__head"><div><div class="decision__id">D10</div><div class="decision__title">Selection color in status line</div></div></div>
+        <div class="decision__opts">
+          <div class="opt"><div class="opt__label"><span class="opt__letter">A · cyan (structural)</span></div><div class="terminal" style="padding:8px;"><span class="cy"><b>app.ts</b> L12–45</span></div></div>
+          <div class="opt pick"><div class="opt__label"><span class="opt__letter">B · terracotta (intent)</span><span class="opt__pick">pick</span></div><div class="terminal" style="padding:8px;"><span class="or"><b>app.ts</b> L12–45</span></div></div>
+        </div>
+      </div>
+
+      <div class="decision">
+        <div class="decision__head"><div><div class="decision__id">D12</div><div class="decision__title">Primary CTA copy</div></div></div>
+        <div class="decision__opts">
+          <div class="opt"><div class="opt__label"><span class="opt__letter">A · "Install"</span></div><button class="cb-btn cb-btn--primary cb-btn--primary-lg">Install</button></div>
+          <div class="opt pick"><div class="opt__label"><span class="opt__letter">B · "Install at User scope"</span><span class="opt__pick">pick</span></div><button class="cb-btn cb-btn--primary cb-btn--primary-lg">Install at User scope</button></div>
+          <div class="opt"><div class="opt__label"><span class="opt__letter">C · "Get started"</span></div><button class="cb-btn cb-btn--primary cb-btn--primary-lg">Get started</button></div>
+        </div>
+      </div>
+
+      <div class="decision">
+        <div class="decision__head"><div><div class="decision__id">D13</div><div class="decision__title">Footer button text</div></div></div>
+        <div class="decision__opts">
+          <div class="opt"><div class="opt__label"><span class="opt__letter">A · "All settings…"</span></div><button class="cb-btn cb-btn--ghost" style="width:100%;">All settings…</button></div>
+          <div class="opt pick"><div class="opt__label"><span class="opt__letter">B · "Open full settings"</span><span class="opt__pick">pick</span></div><button class="cb-btn cb-btn--ghost" style="width:100%;">Open full settings</button></div>
+        </div>
+      </div>
+
+      <p class="note" style="margin-top:24px;">D2, D4, D5, D7, D9, D11, D14 – D18 are text/behavior defaults that ship unless you say otherwise. See <code>PLAN.md § 19</code>.</p>
+    </section>
+
+    <p class="note" style="margin-top:32px;">
+      End of preview. When you're ready, reply <b>"ship it"</b> and I'll start
+      with step 1 in <code>PLAN.md § 20</code> (tokens rewrite). Any override
+      like <code>D6: C, D12: A</code> is honored before I begin.
+    </p>
+
+  </main>
+</div>
+</body>
+</html>

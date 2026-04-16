@@ -1,21 +1,20 @@
 import { SegmentEntry, SegmentMeta } from "../segments";
 
-export type SettingsTarget = "user" | "project" | "projectLocal" | "ask";
 export type PathStyle = "basename" | "truncated" | "full";
+export type BarStyle = "blocks" | "squares" | "shades" | "dots";
 
 export interface ClaudeBridgeSettings {
-  enabled: boolean;
   contextInjection: boolean;
   statusLine: boolean;
-  autoSetup: boolean;
+  autoOpenModifiedFiles: boolean;
   maxLines: number;
-  debounceMs: number;
   statusLineMaxPath: number;
   statusLinePathStyle: PathStyle;
-  contextPrefix: string;
+  statusLineBarStyle: BarStyle;
+  statusLineCompact: boolean;
   showPartialLineContext: boolean;
-  settingsTarget: SettingsTarget;
   activePreset: string;
+  excludedPatterns: string[];
 }
 
 export interface PresetSummary {
@@ -39,6 +38,8 @@ export interface State {
   segmentMeta: SegmentMeta[];
   presets: PresetSummary[];
   selection: SelectionInfo | null;
+  /** True once Claude Bridge has been installed into ~/.claude/settings.json. */
+  setupCompleted: boolean;
 }
 
 // ---------- Webview -> Extension ----------
@@ -50,8 +51,9 @@ export type InboundMessage =
   | { type: "exportPreset" }
   | { type: "importPreset" }
   | { type: "openSettings" }
-  | { type: "runSetup" }
-  | { type: "removeConfig" };
+  | { type: "install" }
+  | { type: "uninstall" }
+  | { type: "perf"; label: string; ms: number };
 
 // ---------- Extension -> Webview ----------
 export type OutboundMessage =
