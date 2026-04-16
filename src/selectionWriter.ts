@@ -204,72 +204,89 @@ function buildTooltip(_info: { path: string; lines: string } | null): vscode.Mar
   md.supportHtml = true;
   md.supportThemeIcons = true;
 
-  // Colored bullet — shared by header dots and per-feature rows.
-  const dot = (on: boolean): string =>
-    on
-      ? '<span style="color:#73C991;">\u25CF</span>'
-      : '<span style="color:#F14C4C;">\u25CF</span>';
-  const muted = (s: string): string => `*${s}*`;
-
-  // Brand mark as an inline data-URI SVG — the chevrons inherit theme fg,
-  // the spark stays terracotta.
-  const svgMark =
-    '<svg width="16" height="16" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">' +
-    '<path d="M8 6.5L3.5 12 8 17.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/>' +
-    '<path d="M16 6.5L20.5 12 16 17.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/>' +
-    '<path d="M12 7.5l1 3.5 3.5 1-3.5 1-1 3.5-1-3.5-3.5-1 3.5-1z" fill="#D97757"/>' +
-    "</svg>";
-  const svgDataUri = `data:image/svg+xml;base64,${Buffer.from(svgMark).toString("base64")}`;
-
-  // Header.
+  // --- Header: wordmark + version (icon removed — redundant with the
+  //     activity-bar icon the user is hovering over) ---------------------
   md.appendMarkdown(
-    `<img src="${svgDataUri}" alt="" width="16" height="16">&nbsp;&nbsp;**Claude Bridge**&nbsp;&nbsp;${muted("v" + extensionVersion)}\n\n`,
+    `**Claude Bridge**&nbsp;&nbsp;<span style="color:#8A8F98;">v${extensionVersion}</span>\n\n`,
   );
 
-  // Feature matrix — three rows, compact.
-  md.appendMarkdown(`${dot(contextInjection)}&nbsp;&nbsp;Context injection&nbsp;&nbsp;${muted(contextInjection ? "on" : "off")}\n\n`);
-  md.appendMarkdown(`${dot(statusLine)}&nbsp;&nbsp;Status line&nbsp;&nbsp;${muted(statusLine ? "on" : "off")}\n\n`);
-  md.appendMarkdown(`${dot(autoOpen)}&nbsp;&nbsp;Auto-open edited files&nbsp;&nbsp;${muted(autoOpen ? "on" : "off")}\n\n`);
-
-  if (currentSelection) {
-    md.appendMarkdown("---\n\n");
-    md.appendMarkdown(`${muted("SELECTION")}\n\n`);
-    md.appendMarkdown("`" + currentSelection.relativePath + "`\n\n");
-    const range = currentSelection.isPartial
-      ? `line ${currentSelection.startLine}`
-      : `lines ${currentSelection.startLine}\u2013${currentSelection.endLine} \u00B7 ${currentSelection.lineCount} lines`;
-    md.appendMarkdown(`${muted(range)}\n\n`);
-
-    if (contextInjection) {
-      const status = getInjectionStatus();
-      if (status.kind === "pending") {
-        md.appendMarkdown(
-          `<span style="color:#E2B93B;">\u25CF</span>&nbsp;&nbsp;${muted("Queued \u2014 will inject on your next Claude Code prompt.")}\n\n`,
-        );
-      } else if (status.kind === "delivered") {
-        md.appendMarkdown(
-          `<span style="color:#73C991;">\u25CF</span>&nbsp;&nbsp;${muted(
-            `Delivered ${formatAgo(status.sinceSec)}. Won't re-inject until the selection changes.`,
-          )}\n\n`,
-        );
-      }
-    } else {
-      md.appendMarkdown(
-        `<span style="color:#F14C4C;">\u25CF</span>&nbsp;&nbsp;${muted("Context injection is off \u2014 Claude won't see this selection.")}\n\n`,
-      );
-    }
-    md.appendMarkdown(`[Clear selection](command:claude-bridge.clearSelection)&nbsp;&nbsp;\u00B7&nbsp;&nbsp;[Preview](command:claude-bridge.preview)\n\n`);
-  } else {
-    md.appendMarkdown("---\n\n");
-    md.appendMarkdown(`${muted("Select code in the editor to pipe it to Claude Code.")}\n\n`);
+  // --- Primary status line (one row that answers "is it working now?") ---
+  if (!contextInjection) {
+    md.appendMarkdown(
+      `<span style="color:#F14C4C;">\u25CF</span>&nbsp;&nbsp;**Context injection is off**\n\n`,
+    );
+    md.appendMarkdown(
+      `<span style="color:#8A8F98;">Selections won't reach Claude until this is enabled.</span>\n\n`,
+    );
+    md.appendMarkdown(
+      "[Open dashboard to enable](command:claude-bridge.openDashboard)\n\n",
+    );
+    return md;
   }
 
+  if (currentSelection) {
+    const status = getInjectionStatus();
+    if (status.kind === "delivered") {
+      md.appendMarkdown(
+        `<span style="color:#73C991;">\u25CF</span>&nbsp;&nbsp;**Delivered to Claude Code** &nbsp;` +
+          `<span style="color:#8A8F98;">${formatAgo(status.sinceSec)}</span>\n\n`,
+      );
+    } else if (status.kind === "pending") {
+      md.appendMarkdown(
+        `<span style="color:#E2B93B;">\u25CF</span>&nbsp;&nbsp;**Queued for your next Claude prompt**\n\n`,
+      );
+    } else {
+      md.appendMarkdown(
+        `<span style="color:#73C991;">\u25CF</span>&nbsp;&nbsp;**Selection ready to inject**\n\n`,
+      );
+    }
+
+    // Selection card — mono path + muted line range.
+    md.appendMarkdown(
+      `<span style="color:#D97757;">\u2731</span>&nbsp;&nbsp;\`${currentSelection.relativePath}\`\n\n`,
+    );
+    const range = currentSelection.isPartial
+      ? `line ${currentSelection.startLine}`
+      : `lines ${currentSelection.startLine}\u2013${currentSelection.endLine}` +
+        `&nbsp;&nbsp;\u00B7&nbsp;&nbsp;${currentSelection.lineCount} lines`;
+    md.appendMarkdown(`<span style="color:#8A8F98;">${range}</span>\n\n`);
+  } else {
+    md.appendMarkdown(
+      `<span style="color:#73C991;">\u25CF</span>&nbsp;&nbsp;**Bridge ready**\n\n`,
+    );
+    md.appendMarkdown(
+      `<span style="color:#8A8F98;">Select code in the editor and Claude will see it on your next prompt.</span>\n\n`,
+    );
+  }
+
+  // --- Feature chips (compact single line) --------------------------------
   md.appendMarkdown("---\n\n");
+  const chip = (on: boolean, label: string): string => {
+    const color = on ? "#73C991" : "#8A8F98";
+    const opacity = on ? "1" : "0.55";
+    return (
+      `<span style="color:${color};">\u25CF</span>&nbsp;` +
+      `<span style="opacity:${opacity};">${label}</span>`
+    );
+  };
   md.appendMarkdown(
-    "[Dashboard](command:claude-bridge.openDashboard)&nbsp;&nbsp;\u00B7&nbsp;&nbsp;" +
-      "[Full settings](command:claude-bridge.openSettings)\n\n" +
-      muted("Click the status-bar item to open the dashboard."),
+    chip(contextInjection, "Context") +
+      "&nbsp;&nbsp;&nbsp;&nbsp;" +
+      chip(statusLine, "Status line") +
+      "&nbsp;&nbsp;&nbsp;&nbsp;" +
+      chip(autoOpen, "Auto-open") +
+      "\n\n",
   );
+
+  // --- Actions ------------------------------------------------------------
+  const actions: string[] = ["[Dashboard](command:claude-bridge.openDashboard)"];
+  if (currentSelection) {
+    actions.push("[Preview selection](command:claude-bridge.preview)");
+    actions.push("[Clear](command:claude-bridge.clearSelection)");
+  } else {
+    actions.push("[Full settings](command:claude-bridge.openSettings)");
+  }
+  md.appendMarkdown(actions.join("&nbsp;&nbsp;\u00B7&nbsp;&nbsp;"));
 
   return md;
 }
