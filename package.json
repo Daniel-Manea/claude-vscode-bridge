@@ -2,7 +2,7 @@
   "name": "claude-vscode-bridge",
   "displayName": "Claude Bridge",
   "description": "Pipes your VS Code selection into Claude Code. Select code, ask a question — Claude sees it automatically.",
-  "version": "3.2.10",
+  "version": "3.2.11",
   "publisher": "Daniel-Manea",
   "license": "MIT",
   "icon": "media/logo.png",
@@ -313,15 +313,13 @@
                 "type": "string",
                 "enum": [
                   "model",
-                  "outputStyle",
-                  "thinking",
                   "gitBranch",
                   "contextBar",
                   "contextPercentage",
+                  "tokensUsed",
                   "cost",
                   "linesChanged",
                   "rateLimits",
-                  "sessionDuration",
                   "selection"
                 ]
               },

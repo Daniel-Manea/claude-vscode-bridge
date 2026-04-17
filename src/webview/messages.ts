@@ -49,7 +49,6 @@ export interface State {
   howItWorksDismissed: boolean;
   /** Counters shown in the sidebar. */
   recentCount: number;
-  editsCount: number;
   /** Total successful selection writes this session (i.e. times the bridge files got rewritten). */
   selectionsWritten: number;
 }

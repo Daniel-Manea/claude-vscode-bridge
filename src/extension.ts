@@ -105,7 +105,6 @@ function buildState(): State {
     setupCompleted: getSetupCompleted() && isInstalled(),
     howItWorksDismissed: extensionContext?.globalState.get<boolean>(HOW_IT_WORKS_DISMISSED_KEY, false) ?? false,
     recentCount: getRecentSelections().length,
-    editsCount: 0,
     selectionsWritten: getSessionStats().selectionsWritten,
   };
 }

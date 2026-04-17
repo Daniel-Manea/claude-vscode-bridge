@@ -808,8 +808,6 @@ function buildPartialLinePreview(showPartial: boolean): HTMLElement {
   return box;
 }
 
-// ---------- Claude edits review card ----------
-
 // ---------- Command Center card ----------
 
 function renderCommandCenterCard(state: State): void {
@@ -817,7 +815,6 @@ function renderCommandCenterCard(state: State): void {
   if (!root) return;
   root.innerHTML = "";
 
-  // Inline lightbulb toggle — primary entry point for all actions.
   const bulbField = document.createElement("div");
   bulbField.className = "field";
   bulbField.appendChild(buildToggleRow(
@@ -828,56 +825,6 @@ function renderCommandCenterCard(state: State): void {
     state.settings.showInlineActions,
   ));
   root.appendChild(bulbField);
-
-}
-
-function buildCommandCenterMock(): HTMLElement {
-  const box = document.createElement("div");
-  box.className = "partial-preview";
-  const lines: string[] = [
-    '<span class="tag">command center \u00B7 mock</span>',
-    '<span class="path">Claude Bridge \u00B7 quick actions</span>',
-    '  \u26A1 Inject current symbol                   <span class="note">\u2318\u21E7I</span>',
-    '  \uD83D\uDCCC Pin current selection                   <span class="note">\u2318\u21E7\u2325P</span>',
-    '  \u21C4 Send git diff to Claude                 <span class="note">\u2318\u21E7\u2325G</span>',
-    '  \uD83D\uDCCC Pinned selections                        <span class="note">2 pinned</span>',
-    '  \u27F3 Recent selections                        <span class="note">6 recent</span>',
-    '  \u270E Claude\u2019s edits this session              <span class="note">3 files</span>',
-  ];
-  box.innerHTML = lines.join("\n");
-  return box;
-}
-
-function buildSessionStripMock(): HTMLElement {
-  const box = document.createElement("div");
-  box.className = "partial-preview";
-  box.innerHTML = [
-    '<span class="tag">sidebar header \u00B7 mock</span>',
-    '  <span class="selected">47</span>  selections sent  <span class="caret">\u00B7</span>  <span class="selected">8</span>  files Claude edited  <span class="caret">\u00B7</span>  <span class="selected">2</span>  pinned',
-  ].join("\n");
-  return box;
-}
-
-function buildKbdTable(isMac: boolean): HTMLElement {
-  const rows: Array<[string, string]> = [
-    ["Inject current symbol", isMac ? "\u2318\u21E7I" : "Ctrl+\u21E7I"],
-    ["Pin / unpin selection", isMac ? "\u2318\u21E7\u2325P" : "Ctrl+\u21E7Alt+P"],
-    ["Send git diff to Claude", isMac ? "\u2318\u21E7\u2325G" : "Ctrl+\u21E7Alt+G"],
-    ["Open Command Center", isMac ? "\u2318\u21E7\u2325C" : "Ctrl+\u21E7Alt+C"],
-  ];
-  const wrap = document.createElement("div");
-  wrap.className = "kbd-table";
-  for (const [label, key] of rows) {
-    const row = document.createElement("div");
-    row.className = "kbd-row";
-    const l = document.createElement("span");
-    l.textContent = label;
-    const k = document.createElement("kbd");
-    k.textContent = key;
-    row.append(l, k);
-    wrap.appendChild(row);
-  }
-  return wrap;
 }
 
 // ---------- Auto-open card ----------

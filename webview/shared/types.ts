@@ -58,7 +58,6 @@ export interface State {
   setupCompleted: boolean;
   howItWorksDismissed: boolean;
   recentCount: number;
-  editsCount: number;
   selectionsWritten: number;
 }
 

@@ -4,6 +4,20 @@ All notable changes to **Claude Bridge** are documented here. The format follows
 
 ---
 
+## 3.2.11
+
+### Removed
+
+- **Orphan mock functions in the settings webview** — `buildCommandCenterMock`, `buildSessionStripMock`, `buildKbdTable` in `webview/settings/main.ts`. Never called from anywhere; leftover from earlier design revisions that referenced pin, *Send git diff*, and *Claude's edits this session* — all features that no longer exist.
+- **`editsCount` field from the extension → webview State** (`src/webview/messages.ts`, `webview/shared/types.ts`, `src/extension.ts`). Hardcoded to `0` and never read by any UI. Dead since 3.2.4 when the Claude-edits picker was removed.
+
+### Fixed
+
+- **`statusLineSegments.id` JSON-schema enum in `package.json`** — still listed `outputStyle`, `thinking`, and `sessionDuration` (all removed) and was missing `tokensUsed` (added in 3.1.x). VS Code would silently drop unknown IDs; new users wouldn't get a validation error but couldn't *add* `tokensUsed` by typing it either. Now matches the segments actually defined in `src/segments.ts`.
+- **README** — removed the `Claude Bridge: Clear Selection` row from the command list, which no longer exists after 3.2.10.
+
+---
+
 ## 3.2.10
 
 ### Removed

@@ -85,7 +85,6 @@ The envelope is self-contained and versioned. Import on the other side with **Im
 | Claude Bridge: Install | Adds the hook and status line to `~/.claude/settings.json`. |
 | Claude Bridge: Uninstall | Removes everything cleanly. |
 | Claude Bridge: Preview Current Selection | Shows exactly what Claude would receive right now. |
-| Claude Bridge: Clear Selection | Manually deletes the bridge files. |
 | Claude Bridge: Export Preset to JSON | Saves the current configuration to a JSON file. |
 | Claude Bridge: Import Preset from JSON | Loads a previously exported preset. |
 | Claude Bridge: Diagnose Auto-open | Prints a status report to the Output channel. |
