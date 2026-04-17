@@ -38,7 +38,6 @@ function render(state: State): void {
   renderStatusGrid(state);
   renderPresets(state);
   renderSegments(state);
-  renderActions(state);
 
   applySidebarDim(state);
 }
@@ -366,135 +365,9 @@ function buildSegmentNode(meta: SegmentMeta): SegmentNodes {
   return { li, check, label, example, meta };
 }
 
-// ---------- Wizard (all-click action panel) ----------
-
-interface WizardButton {
-  btn: HTMLButtonElement;
-  count: HTMLElement | null;
-  desc: HTMLElement;
-}
-interface WizardNodes {
-  root: HTMLElement;
-  symbol: WizardButton;
-  pin: WizardButton;
-  gitDiff: WizardButton;
-  pins: WizardButton;
-  recent: WizardButton;
-  edits: WizardButton;
-}
-let wizardNodes: WizardNodes | null = null;
-
-function renderActions(state: State): void {
-  const root = document.getElementById("actionsRow");
-  if (!root) return;
-  if (!wizardNodes) {
-    root.className = "wizard";
-    const symbol = wizardRow(root, {
-      icon: "\u26A1",
-      label: "Inject current symbol",
-      desc: "Send the function / class at the cursor.",
-      command: "claude-bridge.injectCurrentSymbol",
-    });
-    const pin = wizardRow(root, {
-      icon: "\u2731",
-      label: "Pin this selection",
-      desc: "Select something first.",
-      command: "claude-bridge.pinSelection",
-    });
-    const gitDiff = wizardRow(root, {
-      icon: "\u21C4",
-      label: "Send git diff",
-      desc: "Working tree, staged, or PR diff.",
-      command: "claude-bridge.sendGitDiff",
-    });
-    const pins = wizardRow(root, {
-      icon: "\u2731",
-      label: "Pinned selections",
-      desc: "Open, edit, unpin.",
-      command: "claude-bridge.showPins",
-      hasCount: true,
-    });
-    const recent = wizardRow(root, {
-      icon: "\u27F3",
-      label: "Recent selections",
-      desc: "Re-inject a past selection.",
-      command: "claude-bridge.recentSelections",
-      hasCount: true,
-    });
-    const edits = wizardRow(root, {
-      icon: "\u270E",
-      label: "Claude's edits",
-      desc: "Review, diff, revert.",
-      command: "claude-bridge.showClaudeEdits",
-      hasCount: true,
-    });
-    wizardNodes = { root, symbol, pin, gitDiff, pins, recent, edits };
-  }
-  // Live counts + enablement.
-  setWizardCount(wizardNodes.pins, state.pinsCount);
-  setWizardCount(wizardNodes.recent, state.recentCount);
-  setWizardCount(wizardNodes.edits, state.editsCount);
-
-  const hasSelection = !!state.selection;
-  wizardNodes.pin.btn.toggleAttribute("disabled", !hasSelection);
-  wizardNodes.pin.desc.textContent = hasSelection
-    ? `${state.selection!.relativePath}:${state.selection!.startLine}\u2013${state.selection!.endLine}`
-    : "Select something first.";
-}
-
-function setWizardCount(w: WizardButton, n: number): void {
-  if (!w.count) return;
-  w.count.textContent = String(n);
-  w.count.classList.toggle("hot", n > 0);
-  w.btn.toggleAttribute("disabled", n === 0);
-}
-
-function wizardRow(
-  parent: HTMLElement,
-  opts: { icon: string; label: string; desc: string; command: string; hasCount?: boolean },
-): WizardButton {
-  const btn = document.createElement("button");
-  btn.type = "button";
-  btn.className = "wizard-btn";
-  btn.title = opts.desc;
-
-  const icon = document.createElement("span");
-  icon.className = "wizard-btn__icon";
-  icon.textContent = opts.icon;
-  btn.appendChild(icon);
-
-  const text = document.createElement("span");
-  text.className = "wizard-btn__text";
-  const label = document.createElement("span");
-  label.className = "wizard-btn__label";
-  label.textContent = opts.label;
-  const desc = document.createElement("span");
-  desc.className = "wizard-btn__desc";
-  desc.textContent = opts.desc;
-  text.append(label, desc);
-  btn.appendChild(text);
-
-  let count: HTMLElement | null = null;
-  if (opts.hasCount) {
-    count = document.createElement("span");
-    count.className = "wizard-btn__count";
-    count.textContent = "0";
-    btn.appendChild(count);
-  } else {
-    const chevron = document.createElement("span");
-    chevron.className = "wizard-btn__chevron";
-    chevron.textContent = "\u203A";
-    btn.appendChild(chevron);
-  }
-
-  btn.addEventListener("click", () => {
-    if (btn.hasAttribute("disabled")) return;
-    post({ type: "runCommand", command: opts.command });
-  });
-
-  parent.appendChild(btn);
-  return { btn, count, desc };
-}
+// Sidebar wizard removed — every action now lives on the editor lightbulb
+// (see ClaudeBridgeActionsProvider in src/codeLens.ts) or in the settings
+// panel. The sidebar stays a pure configuration surface.
 
 
 document.getElementById("openSettingsBtn")?.addEventListener("click", () => {

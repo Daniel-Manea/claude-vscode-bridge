@@ -93,11 +93,6 @@ export class ClaudeBridgeSidebarProvider implements vscode.WebviewViewProvider {
       <ul id="segmentsList" class="segments-list"></ul>
     </section>
 
-    <section class="cb-section" id="actionsSection" aria-label="Session actions">
-      <div class="cb-eyebrow"><span class="eyebrow-label">Session</span></div>
-      <div id="actionsRow"></div>
-    </section>
-
     <footer id="footerSection">
       <button id="openSettingsBtn" type="button" class="cb-btn-ghost">Open full settings</button>
     </footer>

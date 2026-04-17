@@ -17,8 +17,6 @@ export interface ClaudeBridgeSettings {
   includeTypeContext: boolean;
   multiCursorSelection: boolean;
   pinnedContextEnabled: boolean;
-  codeLensClaudeEdits: boolean;
-  codeLensTestFailures: boolean;
   commandCenterOnStatusClick: boolean;
   showSessionStats: boolean;
   showInlineActions: boolean;

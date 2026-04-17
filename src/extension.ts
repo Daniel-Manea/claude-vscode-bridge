@@ -65,26 +65,15 @@ import {
   removePin,
 } from "./pinnedContext";
 import {
-  clearClaudeEdits,
   disposeFileOpener,
-  forgetClaudeEdit,
-  getClaudeEdits,
   initFileOpener,
-  onClaudeEditsChanged,
-  restoreClaudeEdits,
   setAutoOpenEnabled,
   verifyAutoOpenSetup,
-  type ClaudeEdit,
 } from "./fileOpener";
 import { writeStatusLineScript } from "./statusLineScript";
-import {
-  ClaudeBridgeActionsProvider,
-  ClaudeEditsLensProvider,
-  TestFailureLensProvider,
-} from "./codeLens";
+import { ClaudeBridgeActionsProvider } from "./codeLens";
 
 const SETUP_COMPLETED_KEY = "claudeBridge.setupCompleted";
-const CLAUDE_EDITS_KEY = "claudeBridge.claudeEdits";
 
 // --- Extension-scope state ---
 let statusBarItem: vscode.StatusBarItem;
@@ -125,7 +114,7 @@ function buildState(): State {
     selection: getCurrentSelection(),
     setupCompleted: getSetupCompleted() && isInstalled(),
     recentCount: getRecentSelections().length,
-    editsCount: getClaudeEdits().length,
+    editsCount: 0,
     pinsCount: getPins().length,
     selectionsWritten: getSessionStats().selectionsWritten,
   };
@@ -327,90 +316,7 @@ async function unpinCurrentSelection(): Promise<void> {
   );
 }
 
-// --- Ask Claude about a test failure ---
-
-async function askClaudeAboutFailure(
-  absPath: string,
-  line: number,
-  character: number,
-  message: string,
-  source: string,
-): Promise<void> {
-  // Open the file, jump to the failure, and write a framed context block
-  // combining (pinned) + (surrounding function) + (failure diagnostic).
-  try {
-    const uri = vscode.Uri.file(absPath);
-    const doc = await vscode.workspace.openTextDocument(uri);
-    const editor = await vscode.window.showTextDocument(doc);
-
-    // Find the enclosing symbol so Claude sees context, not just the line.
-    const symbols = (await vscode.commands.executeCommand(
-      "vscode.executeDocumentSymbolProvider",
-      uri,
-    )) as vscode.DocumentSymbol[] | undefined;
-    const pos = new vscode.Position(line, character);
-    const symbol = symbols ? findSmallestSymbolAt(symbols, pos) : null;
-    const range = symbol?.range ?? new vscode.Range(
-      new vscode.Position(Math.max(0, line - 3), 0),
-      new vscode.Position(Math.min(doc.lineCount - 1, line + 3), 0),
-    );
-    editor.selection = new vscode.Selection(range.start, range.end);
-    editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
-
-    // Frame the message explicitly so Claude's first response can focus on
-    // the failure without re-asking the user "what happened?".
-    const workspaceFolder = vscode.workspace.getWorkspaceFolder(uri);
-    const relativePath = workspaceFolder
-      ? path.relative(workspaceFolder.uri.fsPath, absPath)
-      : path.basename(absPath);
-    const framed =
-      `=== Failing test ===\n` +
-      `${relativePath}:${line + 1}${source ? ` (${source})` : ""}\n\n` +
-      `Failure message:\n${message}\n`;
-
-    // Append the framed message to whatever the regular selection-writer
-    // is about to write. Simplest: write a temporary context file. We rely
-    // on the normal writeSelection flow (triggered by editor.selection =)
-    // to produce the base context. Then we overwrite with framed + base.
-    // Since writeSelection is debounced, flip the dedup key to force a
-    // rewrite, then append the failure section.
-    // For reliability, just write the framed block on top of whatever the
-    // selection writer produces on its own tick.
-    const { CONTEXT_FILE } = await import("./paths");
-    const fs = await import("fs/promises");
-    await new Promise((r) => setTimeout(r, 80)); // let writeSelection land
-    let existing = "";
-    try {
-      const raw = await fs.readFile(CONTEXT_FILE, "utf-8");
-      const parsed = JSON.parse(raw) as { hookSpecificOutput?: { additionalContext?: string } };
-      existing = parsed.hookSpecificOutput?.additionalContext ?? "";
-    } catch {
-      /* no base; use framed alone */
-    }
-    const combined = existing ? framed + "\n" + existing : framed;
-    await fs.writeFile(
-      CONTEXT_FILE,
-      JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: "UserPromptSubmit",
-          additionalContext: combined,
-        },
-      }),
-    );
-    const { CONTEXT_SENT_FILE } = await import("./paths");
-    await fs.unlink(CONTEXT_SENT_FILE).catch(() => {});
-
-    vscode.window.showInformationMessage(
-      `Claude Bridge: failure context ready. Ask "why does this fail?" in your Claude terminal.`,
-    );
-  } catch (err) {
-    vscode.window.showErrorMessage(
-      `Claude Bridge: couldn't prep failure context — ${(err as Error).message}`,
-    );
-  }
-}
-
-// --- Command Center (unified quickpick) ---
+// --- Command Center (palette-only; not wired to any UI surface) ---
 
 interface CommandEntry {
   label: string;
@@ -424,13 +330,11 @@ async function openCommandCenter(): Promise<void> {
   const isMac = process.platform === "darwin";
   const kSym = isMac ? "\u2318\u21E7I" : "Ctrl+\u21E7I";
   const kPin = isMac ? "\u2318\u21E7\u2325P" : "Ctrl+\u21E7Alt+P";
-  const kDiff = isMac ? "\u2318\u21E7\u2325G" : "Ctrl+\u21E7Alt+G";
   const kCenter = isMac ? "\u2318\u21E7\u2325C" : "Ctrl+\u21E7Alt+C";
 
   const hasSelection = !!getCurrentSelection();
   const pins = getPins();
   const recent = getRecentSelections();
-  const edits = getClaudeEdits();
 
   const entries: CommandEntry[] = [];
 
@@ -463,14 +367,6 @@ async function openCommandCenter(): Promise<void> {
   }
 
   entries.push({
-    label: "$(git-compare) Send git diff to Claude",
-    description: kDiff,
-    detail: "Working tree, staged, or PR diff — pick after you run it.",
-    command: "claude-bridge.sendGitDiff",
-    kbd: kDiff,
-  });
-
-  entries.push({
     label: `$(pin) Pinned selections`,
     description: pins.length ? `${pins.length} pinned` : "none",
     detail: pins.length
@@ -486,15 +382,6 @@ async function openCommandCenter(): Promise<void> {
       ? "Re-inject a selection you already used this session."
       : "No recent selections yet.",
     command: "claude-bridge.recentSelections",
-  });
-
-  entries.push({
-    label: "$(edit) Claude's edits this session",
-    description: edits.length ? `${edits.length} files` : "none",
-    detail: edits.length
-      ? "Diff vs. HEAD or revert any file Claude has modified."
-      : "Claude hasn't edited any files yet.",
-    command: "claude-bridge.showClaudeEdits",
   });
 
   entries.push({ label: "", description: "", detail: "", command: "__separator" } as CommandEntry);
@@ -552,132 +439,6 @@ async function openCommandCenter(): Promise<void> {
 }
 
 // --- Send git diff as Claude's context ---
-
-async function sendGitDiff(): Promise<void> {
-  // Resolve a git root: prefer the active editor's folder, then the first
-  // open workspace folder.
-  const editor = vscode.window.activeTextEditor;
-  const seed = editor?.document.uri.fsPath
-    ?? vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-  if (!seed) {
-    vscode.window.showInformationMessage(
-      "Claude Bridge: open a folder first so I know which repo to diff.",
-    );
-    return;
-  }
-  const root = await findGitRoot(seed);
-  if (!root) {
-    vscode.window.showInformationMessage(
-      "Claude Bridge: that folder isn't inside a git repository.",
-    );
-    return;
-  }
-
-  // Discover the default branch so the "PR diff" option uses the right base.
-  let defaultBranch = "main";
-  const originHead = await runGit(root, ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"]);
-  if (originHead.code === 0) {
-    const name = originHead.stdout.trim().replace(/^origin\//, "");
-    if (name) defaultBranch = name;
-  }
-
-  type DiffChoice = {
-    id: "working" | "staged" | "pr";
-    label: string;
-    description: string;
-    detail: string;
-    gitArgs: string[];
-  };
-  const choices: DiffChoice[] = [
-    {
-      id: "working",
-      label: "$(diff) Working tree",
-      description: "git diff HEAD",
-      detail: "All unstaged + staged changes in your working copy",
-      gitArgs: ["diff", "HEAD"],
-    },
-    {
-      id: "staged",
-      label: "$(git-commit) Staged only",
-      description: "git diff --cached",
-      detail: "What you're about to commit",
-      gitArgs: ["diff", "--cached"],
-    },
-    {
-      id: "pr",
-      label: `$(git-pull-request) PR diff vs. ${defaultBranch}`,
-      description: `git diff origin/${defaultBranch}...HEAD`,
-      detail: "Everything on this branch since it diverged from the default",
-      gitArgs: ["diff", `origin/${defaultBranch}...HEAD`],
-    },
-  ];
-  const picked = await vscode.window.showQuickPick(choices, {
-    title: "Send git diff to Claude",
-    placeHolder: "Which diff do you want Claude to see?",
-  });
-  if (!picked) return;
-
-  const result = await runGit(root, picked.gitArgs);
-  if (result.code !== 0) {
-    vscode.window.showErrorMessage(
-      `Claude Bridge: diff failed — ${result.stderr.trim() || "unknown git error"}`,
-    );
-    return;
-  }
-  const body = result.stdout;
-  if (body.trim().length === 0) {
-    vscode.window.showInformationMessage("Claude Bridge: nothing to diff — no changes in that range.");
-    return;
-  }
-  const lineCount = body.split("\n").length;
-  // Cap at 2000 lines so we don't blow Claude's context on a monster diff.
-  const CAP = 2000;
-  let framed: string;
-  if (lineCount > CAP) {
-    const truncated = body.split("\n").slice(0, CAP).join("\n");
-    framed =
-      `=== git diff (${picked.description}, truncated ${lineCount - CAP} / ${lineCount} lines) ===\n` +
-      "```diff\n" +
-      truncated +
-      "\n```\n";
-  } else {
-    framed =
-      `=== git diff (${picked.description}, ${lineCount} lines) ===\n` +
-      "```diff\n" +
-      body +
-      "\n```\n";
-  }
-
-  // Merge with pinned content (if any) so the user doesn't lose pin context
-  // by sending a diff.
-  const { renderPinnedBlock } = await import("./pinnedContext");
-  const pinnedBlock = getConfig().get<boolean>("pinnedContextEnabled", true)
-    ? renderPinnedBlock()
-    : "";
-  const contextStr = pinnedBlock
-    ? pinnedBlock + "\n\n" + framed
-    : framed;
-
-  const { CONTEXT_FILE } = await import("./paths");
-  const fs = await import("fs/promises");
-  await fs.writeFile(
-    CONTEXT_FILE,
-    JSON.stringify({
-      hookSpecificOutput: {
-        hookEventName: "UserPromptSubmit",
-        additionalContext: contextStr,
-      },
-    }),
-  );
-  // Also invalidate the "sent" marker so the hook picks it up on the next
-  // prompt even if the user had just seen a delivery.
-  const { CONTEXT_SENT_FILE } = await import("./paths");
-  await fs.unlink(CONTEXT_SENT_FILE).catch(() => {});
-
-  vscode.window.showInformationMessage(
-    `Claude Bridge: sent ${picked.description} to Claude (${Math.min(lineCount, CAP)} lines). Ask your next question in the terminal.`,
-  );
-}
 
 async function showPinsPicker(): Promise<void> {
   const pins = getPins();
@@ -844,177 +605,6 @@ async function showRecentSelectionsPicker(): Promise<void> {
 
 // --- Claude's edits (diff / revert via git) ---
 
-async function runGit(cwd: string, args: string[]): Promise<{ code: number; stdout: string; stderr: string }> {
-  const { spawn } = await import("child_process");
-  return new Promise((resolve) => {
-    const child = spawn("git", args, { cwd });
-    let stdout = "";
-    let stderr = "";
-    child.stdout.on("data", (d) => (stdout += d.toString()));
-    child.stderr.on("data", (d) => (stderr += d.toString()));
-    child.on("close", (code) => resolve({ code: code ?? -1, stdout, stderr }));
-    child.on("error", () => resolve({ code: -1, stdout, stderr }));
-  });
-}
-
-async function findGitRoot(filePath: string): Promise<string | null> {
-  const dir = path.dirname(filePath);
-  const r = await runGit(dir, ["rev-parse", "--show-toplevel"]);
-  if (r.code !== 0) return null;
-  return r.stdout.trim() || null;
-}
-
-async function showClaudeEditsPicker(): Promise<void> {
-  const edits = getClaudeEdits();
-  if (edits.length === 0) {
-    vscode.window.showInformationMessage("Claude Bridge: Claude hasn't edited any files this session.");
-    return;
-  }
-  const diffBtn: vscode.QuickInputButton = {
-    iconPath: new vscode.ThemeIcon("diff"),
-    tooltip: "Diff vs. HEAD",
-  };
-  const revertBtn: vscode.QuickInputButton = {
-    iconPath: new vscode.ThemeIcon("discard"),
-    tooltip: "Revert to HEAD",
-  };
-  const clearBtn: vscode.QuickInputButton = {
-    iconPath: new vscode.ThemeIcon("clear-all"),
-    tooltip: "Clear the edits log (doesn't touch files)",
-  };
-
-  const qp = vscode.window.createQuickPick<{ label: string; description?: string; detail?: string; edit: typeof edits[number]; buttons?: vscode.QuickInputButton[] }>();
-  qp.title = "Claude's edits this session";
-  qp.placeholder = "Pick a file to open, or use the icons to diff / revert";
-  qp.buttons = [clearBtn];
-  qp.matchOnDescription = true;
-  qp.matchOnDetail = true;
-
-  const refresh = (): void => {
-    const list = getClaudeEdits();
-    qp.items = list.map((e) => ({
-      label: `$(file-code) ${path.basename(e.absolutePath)}`,
-      description: vscode.workspace.asRelativePath(e.absolutePath, false),
-      detail: `${e.count} edit${e.count === 1 ? "" : "s"} · last ${formatAgo(e.lastAt)}`,
-      edit: e,
-      buttons: [diffBtn, revertBtn],
-    }));
-    if (list.length === 0) qp.hide();
-  };
-  refresh();
-
-  qp.onDidTriggerItemButton(async (ev) => {
-    const absPath = ev.item.edit.absolutePath;
-    if (ev.button === diffBtn) {
-      await diffClaudeEditAt(absPath);
-    } else if (ev.button === revertBtn) {
-      await revertClaudeEditAt(absPath);
-      refresh();
-    }
-  });
-  qp.onDidTriggerButton((btn) => {
-    if (btn === clearBtn) {
-      clearClaudeEdits();
-      refresh();
-    }
-  });
-  qp.onDidAccept(async () => {
-    const sel = qp.selectedItems[0];
-    if (sel) {
-      qp.hide();
-      const uri = vscode.Uri.file(sel.edit.absolutePath);
-      const doc = await vscode.workspace.openTextDocument(uri);
-      await vscode.window.showTextDocument(doc);
-    }
-  });
-  qp.onDidHide(() => qp.dispose());
-  qp.show();
-}
-
-async function diffClaudeEditAt(absPath: string): Promise<void> {
-  const root = await findGitRoot(absPath);
-  if (!root) {
-    vscode.window.showWarningMessage(
-      "Claude Bridge: can't diff — this file isn't inside a git repository.",
-    );
-    return;
-  }
-  const rel = path.relative(root, absPath);
-
-  // Read the HEAD version via `git show` and write it to a deterministic
-  // path under the OS temp directory. Then ask VS Code to diff that temp
-  // file against the working copy. This is more reliable than trying to
-  // synthesize the internal `git:` URI, which changes shape between VS Code
-  // releases.
-  const show = await runGit(root, ["show", `HEAD:${rel}`]);
-  const fileUri = vscode.Uri.file(absPath);
-  const title = `${path.basename(absPath)}  (HEAD \u2194 working)`;
-
-  if (show.code !== 0) {
-    // Common case: the file is new — doesn't exist at HEAD. Diff against
-    // an empty buffer so the whole file shows as "added".
-    const stderr = show.stderr.trim();
-    if (
-      stderr.includes("does not exist") ||
-      stderr.includes("exists on disk, but not in")
-    ) {
-      const tmp = await writeTempForDiff(path.basename(absPath) + ".head", "");
-      await vscode.commands.executeCommand("vscode.diff", tmp, fileUri, `${path.basename(absPath)}  (new file)`);
-      return;
-    }
-    vscode.window.showErrorMessage(`Claude Bridge: diff failed — ${stderr || "unknown git error"}`);
-    return;
-  }
-
-  const tmp = await writeTempForDiff(path.basename(absPath) + ".head", show.stdout);
-  await vscode.commands.executeCommand("vscode.diff", tmp, fileUri, title);
-}
-
-async function writeTempForDiff(label: string, content: string): Promise<vscode.Uri> {
-  const os = await import("os");
-  const fs = await import("fs/promises");
-  const dir = path.join(os.tmpdir(), "claude-bridge-diff");
-  try {
-    await fs.mkdir(dir, { recursive: true });
-  } catch {
-    /* ignore */
-  }
-  // Include a short random suffix so concurrent diffs don't race on the same
-  // path. The file is re-readable (VS Code leaves it open).
-  const rand = Math.random().toString(36).slice(2, 8);
-  const p = path.join(dir, `${rand}-${label}`);
-  await fs.writeFile(p, content, "utf-8");
-  return vscode.Uri.file(p);
-}
-
-async function revertClaudeEditAt(absPath: string): Promise<void> {
-  const root = await findGitRoot(absPath);
-  if (!root) {
-    vscode.window.showWarningMessage(
-      "Claude Bridge: can't revert — this file isn't inside a git repository.",
-    );
-    return;
-  }
-  const rel = path.relative(root, absPath);
-  const pick = await vscode.window.showWarningMessage(
-    `Revert ${rel} to HEAD? Any of Claude's unsaved changes in this file will be lost.`,
-    { modal: true },
-    "Revert",
-  );
-  if (pick !== "Revert") return;
-  const result = await runGit(root, ["checkout", "HEAD", "--", rel]);
-  if (result.code !== 0) {
-    vscode.window.showErrorMessage(
-      `Claude Bridge: revert failed — ${result.stderr.trim() || "unknown git error"}`,
-    );
-    return;
-  }
-  forgetClaudeEdit(absPath);
-  vscode.window.showInformationMessage(`Claude Bridge: reverted ${rel} to HEAD.`);
-}
-
-// --- Webview message handling ---
-
 async function handleWebviewMessage(msg: InboundMessage): Promise<void> {
   log("recv", msg.type, JSON.stringify(msg).substring(0, 200));
   const cfg = getConfig();
@@ -1091,12 +681,7 @@ export function activate(context: vscode.ExtensionContext): void {
   log("activate v" + extensionVersion);
 
   statusBarItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 50);
-  const applyStatusBarCommand = (): void => {
-    statusBarItem.command = getConfig().get<boolean>("commandCenterOnStatusClick", true)
-      ? "claude-bridge.commandCenter"
-      : "claude-bridge.openDashboard";
-  };
-  applyStatusBarCommand();
+  statusBarItem.command = "claude-bridge.openDashboard";
   statusBarItem.text = "$(link) Claude Bridge";
   statusBarItem.show();
   context.subscriptions.push(statusBarItem);
@@ -1127,18 +712,9 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
   );
 
-  // Restore the Claude-edits session log so it survives VS Code reloads.
-  // Without this, "Show Claude's Edits…" resets to empty every time the
-  // window reopens — painful when you want to review a session's worth of
-  // changes. Persist back to globalState on every change.
-  const persistedEdits = context.globalState.get<ClaudeEdit[]>(CLAUDE_EDITS_KEY, []);
-  restoreClaudeEdits(persistedEdits);
-  context.subscriptions.push(
-    onClaudeEditsChanged((list) => {
-      void context.globalState.update(CLAUDE_EDITS_KEY, list);
-      broadcastState();
-    }),
-  );
+  // Claude-edits session log and diff/revert review were removed in 3.2.4.
+  // We still track edits internally so autoOpen can tail them, but nothing
+  // in the UI surfaces the list.
 
   sidebarProvider = new ClaudeBridgeSidebarProvider(
     context.extensionUri,
@@ -1225,9 +801,6 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("claude-bridge.recentSelections", async () => {
       await showRecentSelectionsPicker();
     }),
-    vscode.commands.registerCommand("claude-bridge.showClaudeEdits", async () => {
-      await showClaudeEditsPicker();
-    }),
     vscode.commands.registerCommand("claude-bridge.pinSelection", async () => {
       await pinCurrentSelection();
     }),
@@ -1252,45 +825,16 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("claude-bridge.showPins", async () => {
       await showPinsPicker();
     }),
-    vscode.commands.registerCommand("claude-bridge.sendGitDiff", async () => {
-      await sendGitDiff();
-    }),
     vscode.commands.registerCommand("claude-bridge.commandCenter", async () => {
       await openCommandCenter();
-    }),
-    vscode.commands.registerCommand("claude-bridge.acceptClaudeEdit", async (absPath?: string) => {
-      if (typeof absPath === "string") {
-        forgetClaudeEdit(absPath);
-        vscode.window.showInformationMessage(
-          `Claude Bridge: accepted ${path.basename(absPath)}. Dropped from the session log.`,
-        );
-      }
-    }),
-    vscode.commands.registerCommand(
-      "claude-bridge.askClaudeAboutFailure",
-      async (absPath?: string, line?: number, character?: number, message?: string, source?: string) => {
-        if (typeof absPath !== "string" || typeof line !== "number" || typeof message !== "string") return;
-        await askClaudeAboutFailure(absPath, line, character ?? 0, message, source ?? "");
-      },
-    ),
-    vscode.commands.registerCommand("claude-bridge.diffClaudeEdit", async (absPath?: string) => {
-      if (typeof absPath === "string") await diffClaudeEditAt(absPath);
-    }),
-    vscode.commands.registerCommand("claude-bridge.revertClaudeEdit", async (absPath?: string) => {
-      if (typeof absPath === "string") await revertClaudeEditAt(absPath);
     }),
   );
 
   refreshStatusBar();
 
-  // CodeLens — Claude-edited files + failing tests.
-  const editsLens = new ClaudeEditsLensProvider(context);
-  const failLens = new TestFailureLensProvider(context);
   // CodeAction — the lightbulb 💡 in the editor with Claude Bridge actions.
   const actionsProvider = new ClaudeBridgeActionsProvider();
   context.subscriptions.push(
-    vscode.languages.registerCodeLensProvider({ scheme: "file" }, editsLens),
-    vscode.languages.registerCodeLensProvider({ scheme: "file" }, failLens),
     vscode.languages.registerCodeActionsProvider(
       { scheme: "file" },
       actionsProvider,
@@ -1330,7 +874,6 @@ export function activate(context: vscode.ExtensionContext): void {
     writeSelection(vscode.window.activeTextEditor);
 
     setAutoOpenEnabled(newCfg.get<boolean>("autoOpenModifiedFiles", false));
-    applyStatusBarCommand();
     refreshStatusBar();
     broadcastState();
   };

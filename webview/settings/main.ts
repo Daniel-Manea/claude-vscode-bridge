@@ -73,11 +73,6 @@ function render(state: State): void {
     renderAutoOpenCard(state);
   }
   if (!prev ||
-      prev.settings.codeLensClaudeEdits !== state.settings.codeLensClaudeEdits ||
-      prev.settings.codeLensTestFailures !== state.settings.codeLensTestFailures) {
-    renderClaudeEditsCard(state);
-  }
-  if (!prev ||
       prev.settings.commandCenterOnStatusClick !== state.settings.commandCenterOnStatusClick ||
       prev.settings.showSessionStats !== state.settings.showSessionStats) {
     renderCommandCenterCard(state);
@@ -851,78 +846,26 @@ function buildPartialLinePreview(showPartial: boolean): HTMLElement {
 
 // ---------- Claude edits review card ----------
 
-function renderClaudeEditsCard(state: State): void {
-  const root = document.getElementById("claude-edits-root");
-  if (!root) return;
-  root.innerHTML = "";
-
-  const editsField = document.createElement("div");
-  editsField.className = "field";
-  editsField.appendChild(buildToggleRow(
-    "f-codeLensClaudeEdits",
-    "codeLensClaudeEdits",
-    "CodeLens on Claude-edited files",
-    "Show an inline row at the top of any file Claude has edited this session with Diff / Revert / Accept buttons.",
-    state.settings.codeLensClaudeEdits,
-  ));
-  editsField.appendChild(buildCodeLensMock("\u2731 Claude edited this file \u00B7 3 edits", [
-    ["$(diff)", "Diff vs. HEAD"],
-    ["$(check)", "Accept"],
-    ["$(discard)", "Revert"],
-  ]));
-  root.appendChild(editsField);
-
-  const failField = document.createElement("div");
-  failField.className = "field";
-  failField.appendChild(buildToggleRow(
-    "f-codeLensTestFailures",
-    "codeLensTestFailures",
-    "CodeLens on failing tests",
-    "Show an inline \u201CAsk Claude about this failure\u201D row above every error diagnostic in a test file. One click writes the failure message + stack into Claude\u2019s context.",
-    state.settings.codeLensTestFailures,
-  ));
-  failField.appendChild(buildCodeLensMock("\u2731 Ask Claude about this failure", []));
-  root.appendChild(failField);
-}
-
-function buildCodeLensMock(title: string, actions: Array<[string, string]>): HTMLElement {
-  const box = document.createElement("div");
-  box.className = "partial-preview";
-  const head = '<span class="tag">codelens \u00B7 preview</span>';
-  const row = `<span class="selected">${escapeCodelensTitle(title)}</span>` +
-    (actions.length
-      ? "  " + actions.map(([_, label]) => `<span class="note">[${label}]</span>`).join("  ")
-      : "");
-  box.innerHTML = [head, row].join("\n");
-  return box;
-}
-
-function escapeCodelensTitle(s: string): string {
-  return s.replace(/\$\([^)]+\)\s*/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;");
-}
-
 // ---------- Command Center card ----------
 
 function renderCommandCenterCard(state: State): void {
   const root = document.getElementById("command-center-root");
   if (!root) return;
   root.innerHTML = "";
-  const isMac = /mac/i.test(navigator.platform || "");
 
-  // Quickpick toggle
-  const qpField = document.createElement("div");
-  qpField.className = "field";
-  qpField.appendChild(buildToggleRow(
-    "f-commandCenter",
-    "commandCenterOnStatusClick",
-    "Open Command Center on status-bar click",
-    "Clicking the \u2018Claude Bridge\u2019 status-bar item opens the unified quickpick with every action + keybinding. Off: clicks open the dashboard instead.",
-    state.settings.commandCenterOnStatusClick,
+  // Inline lightbulb toggle — primary entry point for all actions.
+  const bulbField = document.createElement("div");
+  bulbField.className = "field";
+  bulbField.appendChild(buildToggleRow(
+    "f-showInlineActions",
+    "showInlineActions",
+    "Inline actions in the editor lightbulb",
+    "Place your cursor or make a selection, click the 💡 that appears, and pick any Claude Bridge action. Selection-aware: Pin / Preview show up when a selection exists; Inject symbol / Send git diff / Command Center are always available.",
+    state.settings.showInlineActions,
   ));
-  qpField.appendChild(buildCommandCenterMock());
-  root.appendChild(qpField);
+  root.appendChild(bulbField);
 
-  // Session stats toggle
+  // Session stats toggle (kept — it's passive, not an action).
   const statsField = document.createElement("div");
   statsField.className = "field";
   statsField.appendChild(buildToggleRow(
@@ -934,11 +877,6 @@ function renderCommandCenterCard(state: State): void {
   ));
   statsField.appendChild(buildSessionStripMock());
   root.appendChild(statsField);
-
-  // No keyboard-shortcut cheat sheet: every action is a button in the
-  // sidebar wizard. If you do want shortcuts, they still exist — search for
-  // "Claude Bridge" in VS Code's Keyboard Shortcuts.
-  void isMac;
 }
 
 function buildCommandCenterMock(): HTMLElement {

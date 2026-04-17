@@ -2,7 +2,7 @@
   "name": "claude-vscode-bridge",
   "displayName": "Claude Bridge",
   "description": "Pipes your VS Code selection into Claude Code. Select code, ask a question — Claude sees it automatically.",
-  "version": "3.2.2",
+  "version": "3.2.4",
   "publisher": "Daniel-Manea",
   "license": "MIT",
   "icon": "media/logo.png",
@@ -126,11 +126,6 @@
         "category": "Claude Bridge"
       },
       {
-        "command": "claude-bridge.showClaudeEdits",
-        "title": "Show Claude's Edits…",
-        "category": "Claude Bridge"
-      },
-      {
         "command": "claude-bridge.pinSelection",
         "title": "Pin Selection to Claude's Context",
         "category": "Claude Bridge"
@@ -151,11 +146,6 @@
         "category": "Claude Bridge"
       },
       {
-        "command": "claude-bridge.sendGitDiff",
-        "title": "Send Git Diff to Claude",
-        "category": "Claude Bridge"
-      },
-      {
         "command": "claude-bridge.commandCenter",
         "title": "Command Center",
         "category": "Claude Bridge"
@@ -173,11 +163,6 @@
         "key": "ctrl+shift+alt+p",
         "mac": "cmd+shift+alt+p",
         "when": "editorTextFocus && editorHasSelection"
-      },
-      {
-        "command": "claude-bridge.sendGitDiff",
-        "key": "ctrl+shift+alt+g",
-        "mac": "cmd+shift+alt+g"
       },
       {
         "command": "claude-bridge.commandCenter",
@@ -201,10 +186,6 @@
         {
           "command": "claude-bridge.injectCurrentSymbol",
           "group": "1_selection@2"
-        },
-        {
-          "command": "claude-bridge.sendGitDiff",
-          "group": "2_repo@1"
         }
       ]
     },
@@ -307,16 +288,6 @@
           "type": "boolean",
           "default": true,
           "description": "Allow pinning a selection so it stays in Claude's context on every prompt until unpinned. Unchecked: pins are kept on disk but not injected."
-        },
-        "claudeBridge.codeLensClaudeEdits": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show an inline CodeLens at the top of files Claude has edited this session with Diff / Revert / Accept actions."
-        },
-        "claudeBridge.codeLensTestFailures": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show an inline CodeLens above failing tests with an 'Ask Claude about this failure' action that pre-injects the failure message + stack."
         },
         "claudeBridge.commandCenterOnStatusClick": {
           "type": "boolean",

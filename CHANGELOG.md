@@ -4,6 +4,31 @@ All notable changes to **Claude Bridge** are documented here. The format follows
 
 ---
 
+## 3.2.4
+
+### Removed
+
+- **All diff / review / accept / revert tooling.** Git-diff-to-Claude command, `Send Git Diff` keybinding + editor-context entry, the `Claude's edits this session` picker with *Diff vs. HEAD / Accept / Revert* per file, the *Ask Claude about this failure* lightbulb on failing tests, the CodeLens row on Claude-edited files, the test-failure CodeLens, and their settings (`codeLensClaudeEdits`, `codeLensTestFailures`).
+- Session-log persistence across VS Code reloads.
+- *Claude edits review* card in the settings panel.
+- Lightbulb menu slims to: *Pin selection*, *Preview*, *Clear selection* (when selected), and *Inject enclosing symbol* (always).
+
+### Rationale
+
+Review of Claude's changes is outside the wedge — VS Code's native git UI, Source Control view, and diff editor already cover it well. Claude Bridge stays focused on the editor → Claude handoff.
+
+---
+
+## 3.2.3
+
+### Changed
+
+- **Sidebar is back to configuration-only.** Removed the six-button "Session" wizard added in 3.2.1. All actions now live on the editor lightbulb (3.2.2). Sidebar = toggles / preset / segments / session stats.
+- **Status-bar click opens the dashboard again** (not the Command Center). The Command Center quickpick is still available as a palette command for anyone who wants it, just not wired to any UI surface by default.
+- **Settings → Command Center card** simplified: toggle the inline lightbulb + the session stats strip. No shortcut cheat sheet, no status-bar click option.
+
+---
+
 ## 3.2.2
 
 ### Added
