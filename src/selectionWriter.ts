@@ -27,6 +27,7 @@ import { renderPinnedBlock } from "./pinnedContext";
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
 let lastSelectionKey = "";
 let currentSelection: SelectionInfo | null = null;
+let currentExtraRegions = 0;
 let statusBarItem: vscode.StatusBarItem | undefined;
 let onSelectionChanged: (() => void) | undefined;
 let logFn: ((msg: string) => void) | undefined;
@@ -174,6 +175,7 @@ export async function cleanupFiles(): Promise<void> {
   await syncPinsOnlyContext();
   updateStatusBarItem(null);
   currentSelection = null;
+  currentExtraRegions = 0;
   onSelectionChanged?.();
 }
 
@@ -230,24 +232,26 @@ export function cleanupFilesSync(): void {
 //   warn   → bridge master toggle is off
 const DOT = "\u25CF";
 
-function updateStatusBarItem(info: { path: string; lines: string } | null): void {
+function updateStatusBarItem(info: { path: string; lines: string; extraRegions?: number } | null): void {
   if (!statusBarItem) return;
 
   const cfg = getConfig();
   const contextOn = cfg.get<boolean>("contextInjection", true);
 
   if (info) {
+    const extra = info.extraRegions && info.extraRegions > 0 ? ` +${info.extraRegions}` : "";
+    const label = `${info.path} ${info.lines}${extra}`;
     const status = getInjectionStatus();
     if (!contextOn) {
       // Selection exists but context injection is off — mark it muted so the
       // user sees "this selection won't reach Claude until you toggle on".
-      statusBarItem.text = `$(circle-slash) ${info.path} ${info.lines}`;
+      statusBarItem.text = `$(circle-slash) ${label}`;
       statusBarItem.color = new vscode.ThemeColor("descriptionForeground");
     } else if (status.kind === "pending") {
-      statusBarItem.text = `${DOT} ${info.path} ${info.lines}`;
+      statusBarItem.text = `${DOT} ${label}`;
       statusBarItem.color = new vscode.ThemeColor("charts.yellow");
     } else {
-      statusBarItem.text = `${DOT} ${info.path} ${info.lines}`;
+      statusBarItem.text = `${DOT} ${label}`;
       statusBarItem.color = new vscode.ThemeColor("testing.iconPassed");
     }
   } else {
@@ -380,7 +384,7 @@ export function refreshStatusBar(): void {
   const lineRef = currentSelection.isPartial
     ? `L${currentSelection.startLine}`
     : `L${currentSelection.startLine}\u2013${currentSelection.endLine}`;
-  updateStatusBarItem({ path: displayPath, lines: lineRef });
+  updateStatusBarItem({ path: displayPath, lines: lineRef, extraRegions: currentExtraRegions });
 }
 
 // --- Path formatting ---
@@ -472,6 +476,7 @@ function buildSelectionStatusLine(
   endLine: number,
   lineCount: number,
   isPartial: boolean,
+  extraRegions: number,
 ): string {
   const cfg = getConfig();
   const maxPath = cfg.get<number>("statusLineMaxPath", 30);
@@ -486,13 +491,15 @@ function buildSelectionStatusLine(
   const displayPath = formatPath(relativePath, pathStyle, maxPath);
   const lineRef = isPartial ? `L${startLine}` : `L${startLine}\u2013${endLine}`;
   const countLabel = isPartial ? "(selection)" : `(${lineCount})`;
+  const multiLabel = extraRegions > 0 ? ` +${extraRegions}` : "";
 
   const uri = `vscode://file${absolutePath}:${startLine}:1`;
   const filePart = `${OR}${BOLD}${displayPath}${RESET}`;
   const linePart = `${OR}${lineRef}${RESET}`;
+  const multiPart = extraRegions > 0 ? `${OR}${multiLabel}${RESET}` : "";
   // Wrap the clickable text in the OSC 8 hyperlink sequence so terminals that
   // support it (iTerm2, recent macOS Terminal, WezTerm) open the file in VS Code.
-  const link = `\x1b]8;;${uri}\x07${filePart} ${linePart}\x1b]8;;\x07`;
+  const link = `\x1b]8;;${uri}\x07${filePart} ${linePart}${multiPart}\x1b]8;;\x07`;
 
   return `${link} ${DIM}${countLabel}${RESET}`;
 }
@@ -607,13 +614,24 @@ export function writeSelection(editor: vscode.TextEditor | undefined): void {
         return;
       }
 
-      const selection = editor.selection;
-      let text = editor.document.getText(selection);
-
-      if (text.trim().length === 0) {
+      // Primary selection drives the statusline / status-bar / selection
+      // file. With multi-cursor enabled, we pick the first non-empty selection
+      // as primary so a leader-cursor that's empty doesn't short-circuit the
+      // other non-empty regions.
+      const multiCursor = cfg.get<boolean>("multiCursorSelection", true);
+      const allSelections = multiCursor ? editor.selections.slice() : [editor.selection];
+      const nonEmpty = allSelections.filter(
+        (s) => !s.isEmpty && editor.document.getText(s).trim().length > 0,
+      );
+      if (nonEmpty.length === 0) {
         await cleanupFiles();
         return;
       }
+      const selection = !editor.selection.isEmpty && editor.document.getText(editor.selection).trim().length > 0
+        ? editor.selection
+        : nonEmpty[0];
+      let text = editor.document.getText(selection);
+      const extraSelections = nonEmpty.filter((s) => s !== selection);
 
       const workspaceFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
       const absolutePath = editor.document.uri.fsPath;
@@ -688,16 +706,12 @@ export function writeSelection(editor: vscode.TextEditor | undefined): void {
           selection.end.character,
           diagnostics,
         );
-        // Multi-cursor: if enabled and there are additional non-empty
-        // selections, append each one as its own block. Primary selection
-        // (first in `editor.selections`) is already rendered above.
-        if (cfg.get<boolean>("multiCursorSelection", true) && editor.selections.length > 1) {
+        // Multi-cursor: if the pre-filtered `extraSelections` list is
+        // non-empty, append each as its own context block.
+        if (extraSelections.length > 0) {
           const extras: string[] = [];
-          for (let i = 1; i < editor.selections.length; i++) {
-            const sel = editor.selections[i];
-            if (sel.isEmpty) continue;
+          for (const sel of extraSelections) {
             const extraText = editor.document.getText(sel);
-            if (extraText.trim().length === 0) continue;
             const s = sel.start.line + 1;
             const e = sel.end.line + 1;
             const lc = e - s + 1;
@@ -718,11 +732,9 @@ export function writeSelection(editor: vscode.TextEditor | undefined): void {
               ),
             );
           }
-          if (extras.length > 0) {
-            contextStr =
-              `=== Multi-cursor selection (${extras.length + 1} regions) ===\n\n` +
-              contextStr + "\n\n" + extras.join("\n\n");
-          }
+          contextStr =
+            `=== Multi-cursor selection (${extras.length + 1} regions) ===\n\n` +
+            contextStr + "\n\n" + extras.join("\n\n");
         }
         if (cfg.get<boolean>("pinnedContextEnabled", true)) {
           const pinned = renderPinnedBlock();
@@ -752,6 +764,7 @@ export function writeSelection(editor: vscode.TextEditor | undefined): void {
               endLine,
               lineCount,
               isPartial,
+              extraSelections.length,
             ),
           ),
         );
@@ -806,7 +819,8 @@ export function writeSelection(editor: vscode.TextEditor | undefined): void {
       const pathStyle = cfg.get<string>("statusLinePathStyle", "basename");
       const displayPath = formatPath(relativePath, pathStyle, maxPath);
       const lineRef = isPartial ? `L${startLine}` : `L${startLine}\u2013${endLine}`;
-      updateStatusBarItem({ path: displayPath, lines: lineRef });
+      currentExtraRegions = extraSelections.length;
+      updateStatusBarItem({ path: displayPath, lines: lineRef, extraRegions: currentExtraRegions });
 
       onSelectionChanged?.();
     } catch (err) {

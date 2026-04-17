@@ -4,6 +4,15 @@ All notable changes to **Claude Bridge** are documented here. The format follows
 
 ---
 
+## 3.2.6
+
+### Fixed
+
+- **Multi-cursor now actually works.** Selections used to be gated by whether *the primary cursor* had non-empty text — if your leader cursor was empty but secondary cursors had selections, nothing was injected. Now we pick the first non-empty selection as primary and bundle every other non-empty region into the context.
+- **Multi-cursor is visible in the status line.** Terminal selection segment appends ` +N` when there are extra regions: `app.ts L12–45 +2 (33)`. VS Code status-bar item mirrors it: `● app.ts L12–45 +2`. Tooltip reads naturally.
+
+---
+
 ## 3.2.5
 
 ### Removed
