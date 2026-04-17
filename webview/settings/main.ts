@@ -42,6 +42,9 @@ function render(state: State): void {
   const prev = currentState;
   currentState = state;
 
+  const howCard = document.getElementById("how-it-works");
+  if (howCard) howCard.classList.toggle("hidden", !!state.howItWorksDismissed);
+
   if (!prev || prev.version !== state.version) renderHero(state);
   if (!prev || prev.setupCompleted !== state.setupCompleted) renderInstall(state);
 
@@ -1016,6 +1019,10 @@ function selectField(
 // ---------- Actions ----------
 document.getElementById("export-btn")?.addEventListener("click", () => post({ type: "exportPreset" }));
 document.getElementById("import-btn")?.addEventListener("click", () => post({ type: "importPreset" }));
+document.getElementById("how-dismiss")?.addEventListener("click", () => {
+  document.getElementById("how-it-works")?.classList.add("hidden");
+  post({ type: "dismissHowItWorks" });
+});
 
 // ---------- IPC ----------
 window.addEventListener("message", (ev: MessageEvent) => {

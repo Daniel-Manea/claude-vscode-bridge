@@ -63,19 +63,40 @@ function renderSetup(state: State): void {
 
   const card = document.createElement("div");
   card.className = "setup-card";
+
   const h = document.createElement("h3");
   h.className = "setup-card-title";
   h.textContent = "Get started";
+
   const intro = document.createElement("p");
   intro.className = "setup-card-intro";
   intro.textContent =
-    "Install Claude Bridge into Claude Code to start piping VS Code selections.";
+    "Claude Bridge pipes your VS Code selection into Claude Code's terminal so Claude always knows what you're looking at.";
+
+  const stepsWrap = document.createElement("ol");
+  stepsWrap.className = "setup-steps";
+  const steps: Array<[string, string]> = [
+    ["Install", "Adds the hook + status line to ~/.claude/settings.json."],
+    ["Select code", "Highlight any region in any file."],
+    ["Ask Claude", "Your selection is already in the next prompt's context."],
+  ];
+  for (const [label, desc] of steps) {
+    const li = document.createElement("li");
+    const b = document.createElement("b");
+    b.textContent = label;
+    const d = document.createElement("span");
+    d.textContent = " \u2014 " + desc;
+    li.append(b, d);
+    stepsWrap.appendChild(li);
+  }
+
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "setup-install-btn";
   btn.textContent = "Install at User scope";
   btn.addEventListener("click", () => post({ type: "install" }));
-  card.append(h, intro, btn);
+
+  card.append(h, intro, stepsWrap, btn);
   root.appendChild(card);
 }
 

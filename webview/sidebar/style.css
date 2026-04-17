@@ -110,6 +110,27 @@ body {
   line-height: 1.5;
   color: var(--cb-fg);
 }
+.setup-steps {
+  margin: 0;
+  padding: 0 0 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--cb-fg);
+}
+.setup-steps li::marker {
+  color: var(--cb-accent);
+  font-weight: 700;
+}
+.setup-steps li b {
+  color: var(--cb-accent);
+  font-weight: 600;
+}
+.setup-steps li span {
+  color: var(--cb-muted);
+}
 .setup-install-btn {
   width: 100%;
   height: 32px;

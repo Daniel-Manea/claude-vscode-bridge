@@ -46,6 +46,8 @@ export interface State {
   selection: SelectionInfo | null;
   /** True once Claude Bridge has been installed into ~/.claude/settings.json. */
   setupCompleted: boolean;
+  /** True when the user has dismissed the settings-panel "How it works" card. */
+  howItWorksDismissed: boolean;
   /** Counters shown in the sidebar. */
   recentCount: number;
   editsCount: number;
@@ -66,7 +68,8 @@ export type InboundMessage =
   | { type: "install" }
   | { type: "uninstall" }
   | { type: "perf"; label: string; ms: number }
-  | { type: "runCommand"; command: string };
+  | { type: "runCommand"; command: string }
+  | { type: "dismissHowItWorks" };
 
 // ---------- Extension -> Webview ----------
 export type OutboundMessage =

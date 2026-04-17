@@ -57,6 +57,7 @@ export interface State {
   selection: SelectionInfo | null;
   /** True once Claude Bridge has been installed into ~/.claude/settings.json. */
   setupCompleted: boolean;
+  howItWorksDismissed: boolean;
   recentCount: number;
   editsCount: number;
   pinsCount: number;

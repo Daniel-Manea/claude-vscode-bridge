@@ -4,6 +4,19 @@ All notable changes to **Claude Bridge** are documented here. The format follows
 
 ---
 
+## 3.2.8
+
+### Added
+
+- **Sidebar first-run card** now shows a numbered three-step walkthrough: *Install → Select code → Ask Claude*. Makes the product's job self-explanatory before install.
+- **"How it works" card** at the top of the settings panel with the same three steps + a line about pin / multi-cursor / diagnostics. Dismissible — state persists in `globalState` so it doesn't nag you after you've read it once.
+
+### Changed
+
+- Copy in the first-run card explains the wedge ("pipes your VS Code selection into Claude Code's terminal so Claude always knows what you're looking at") instead of just "install into Claude Code."
+
+---
+
 ## 3.2.7
 
 ### Fixed

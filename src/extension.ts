@@ -74,6 +74,7 @@ import { writeStatusLineScript } from "./statusLineScript";
 import { ClaudeBridgeActionsProvider } from "./codeLens";
 
 const SETUP_COMPLETED_KEY = "claudeBridge.setupCompleted";
+const HOW_IT_WORKS_DISMISSED_KEY = "claudeBridge.howItWorksDismissed";
 
 // --- Extension-scope state ---
 let statusBarItem: vscode.StatusBarItem;
@@ -113,6 +114,7 @@ function buildState(): State {
     }),
     selection: getCurrentSelection(),
     setupCompleted: getSetupCompleted() && isInstalled(),
+    howItWorksDismissed: extensionContext?.globalState.get<boolean>(HOW_IT_WORKS_DISMISSED_KEY, false) ?? false,
     recentCount: getRecentSelections().length,
     editsCount: 0,
     pinsCount: getPins().length,
@@ -647,6 +649,10 @@ async function handleWebviewMessage(msg: InboundMessage): Promise<void> {
         if (msg.command.startsWith("claude-bridge.")) {
           await vscode.commands.executeCommand(msg.command);
         }
+        return;
+      case "dismissHowItWorks":
+        await extensionContext?.globalState.update(HOW_IT_WORKS_DISMISSED_KEY, true);
+        broadcastState();
         return;
     }
   } catch (err) {

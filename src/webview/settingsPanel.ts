@@ -101,6 +101,21 @@ export class ClaudeBridgeSettingsPanel {
 <body>
   <div class="panel">
 
+    <section class="how-card" id="how-it-works">
+      <div class="how-header">
+        <strong>How it works</strong>
+        <button class="how-dismiss" id="how-dismiss" type="button" title="Dismiss">\u2715</button>
+      </div>
+      <ol class="how-steps">
+        <li><b>Select</b> any code in any file.</li>
+        <li><b>Use the 💡 lightbulb</b> in the editor (or right-click \u2192 <em>Claude Bridge</em>) for pin / preview / inject-symbol.</li>
+        <li><b>Ask Claude</b> in your terminal \u2014 the selection is already in the next prompt's context.</li>
+      </ol>
+      <div class="how-foot">
+        Pin a selection to keep it across every prompt. Multi-cursor selections bundle together. Diagnostics on the selected range are attached automatically.
+      </div>
+    </section>
+
     <section class="hero">
       <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
         <path d="M8 6.5L3.5 12 8 17.5" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
