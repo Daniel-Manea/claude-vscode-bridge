@@ -12,6 +12,45 @@ import { getConfig } from "./settings";
 // Bridge" and not some other extension's sidecar.
 const MARK = "\u2731";
 
+/** CodeAction provider — surfaces Claude Bridge actions via VS Code's
+ *  lightbulb 💡 anywhere you have a cursor in a file. Click the bulb, pick
+ *  an action, it runs. All actions are one click away from inside the
+ *  editor without keybindings, sidebar, or status-bar interaction.
+ */
+export class ClaudeBridgeActionsProvider implements vscode.CodeActionProvider {
+  static readonly providedCodeActionKinds = [vscode.CodeActionKind.Refactor];
+
+  provideCodeActions(
+    document: vscode.TextDocument,
+    range: vscode.Range | vscode.Selection,
+  ): vscode.CodeAction[] {
+    if (!getConfig().get<boolean>("showInlineActions", true)) return [];
+    if (document.uri.scheme !== "file") return [];
+
+    const hasSelection = range instanceof vscode.Selection && !range.isEmpty;
+    const actions: vscode.CodeAction[] = [];
+
+    if (hasSelection) {
+      actions.push(
+        this.make(`${MARK} Pin selection to Claude's context`, "claude-bridge.pinSelection"),
+        this.make(`${MARK} Preview what Claude will see`, "claude-bridge.preview"),
+      );
+    }
+    actions.push(
+      this.make(`${MARK} Inject enclosing symbol`, "claude-bridge.injectCurrentSymbol"),
+      this.make(`${MARK} Send git diff to Claude`, "claude-bridge.sendGitDiff"),
+      this.make(`${MARK} Open Claude Bridge Command Center`, "claude-bridge.commandCenter"),
+    );
+    return actions;
+  }
+
+  private make(title: string, command: string): vscode.CodeAction {
+    const action = new vscode.CodeAction(title, vscode.CodeActionKind.Refactor);
+    action.command = { title, command };
+    return action;
+  }
+}
+
 export class ClaudeEditsLensProvider implements vscode.CodeLensProvider {
   private readonly _onDidChange = new vscode.EventEmitter<void>();
   public readonly onDidChangeCodeLenses: vscode.Event<void> = this._onDidChange.event;

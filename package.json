@@ -2,7 +2,7 @@
   "name": "claude-vscode-bridge",
   "displayName": "Claude Bridge",
   "description": "Pipes your VS Code selection into Claude Code. Select code, ask a question — Claude sees it automatically.",
-  "version": "3.2.1",
+  "version": "3.2.2",
   "publisher": "Daniel-Manea",
   "license": "MIT",
   "icon": "media/logo.png",
@@ -327,6 +327,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show a live session-stats row at the top of the dashboard: selections sent, files Claude edited, token / cost totals."
+        },
+        "claudeBridge.showInlineActions": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show Claude Bridge actions in the editor's lightbulb menu. Place the cursor or make a selection, click the 💡, pick any action."
         },
         "claudeBridge.excludedPatterns": {
           "type": "array",

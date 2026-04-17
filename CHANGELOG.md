@@ -4,6 +4,15 @@ All notable changes to **Claude Bridge** are documented here. The format follows
 
 ---
 
+## 3.2.2
+
+### Added
+
+- **In-file lightbulb** (`💡`) with Claude Bridge actions. Place the cursor or make a selection, click the lightbulb that appears, pick any action — no shortcuts, no sidebar, no status-bar. Menu items are selection-aware: with a selection you get *Pin* / *Preview*; always available: *Inject enclosing symbol* / *Send git diff* / *Open Command Center*.
+- Setting: `claudeBridge.showInlineActions` (default `true`). Turn off if the lightbulb is noisy for you.
+
+---
+
 ## 3.2.1
 
 ### Changed

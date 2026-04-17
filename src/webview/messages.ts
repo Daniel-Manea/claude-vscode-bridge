@@ -21,6 +21,7 @@ export interface ClaudeBridgeSettings {
   codeLensTestFailures: boolean;
   commandCenterOnStatusClick: boolean;
   showSessionStats: boolean;
+  showInlineActions: boolean;
   activePreset: string;
   excludedPatterns: string[];
 }

@@ -36,6 +36,7 @@ export function readSettings(): ClaudeBridgeSettings {
     codeLensTestFailures: cfg.get<boolean>("codeLensTestFailures", true),
     commandCenterOnStatusClick: cfg.get<boolean>("commandCenterOnStatusClick", true),
     showSessionStats: cfg.get<boolean>("showSessionStats", true),
+    showInlineActions: cfg.get<boolean>("showInlineActions", true),
     activePreset: cfg.get<string>("activePreset", "default"),
     excludedPatterns: cfg.get<string[]>("excludedPatterns", []),
   };

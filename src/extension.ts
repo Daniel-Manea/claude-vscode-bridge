@@ -77,7 +77,11 @@ import {
   type ClaudeEdit,
 } from "./fileOpener";
 import { writeStatusLineScript } from "./statusLineScript";
-import { ClaudeEditsLensProvider, TestFailureLensProvider } from "./codeLens";
+import {
+  ClaudeBridgeActionsProvider,
+  ClaudeEditsLensProvider,
+  TestFailureLensProvider,
+} from "./codeLens";
 
 const SETUP_COMPLETED_KEY = "claudeBridge.setupCompleted";
 const CLAUDE_EDITS_KEY = "claudeBridge.claudeEdits";
@@ -1282,9 +1286,16 @@ export function activate(context: vscode.ExtensionContext): void {
   // CodeLens — Claude-edited files + failing tests.
   const editsLens = new ClaudeEditsLensProvider(context);
   const failLens = new TestFailureLensProvider(context);
+  // CodeAction — the lightbulb 💡 in the editor with Claude Bridge actions.
+  const actionsProvider = new ClaudeBridgeActionsProvider();
   context.subscriptions.push(
     vscode.languages.registerCodeLensProvider({ scheme: "file" }, editsLens),
     vscode.languages.registerCodeLensProvider({ scheme: "file" }, failLens),
+    vscode.languages.registerCodeActionsProvider(
+      { scheme: "file" },
+      actionsProvider,
+      { providedCodeActionKinds: ClaudeBridgeActionsProvider.providedCodeActionKinds },
+    ),
   );
 
   context.subscriptions.push(
