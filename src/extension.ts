@@ -41,7 +41,6 @@ import {
   uninstallEverywhere,
 } from "./claudeSettings";
 import {
-  cleanupFiles,
   cleanupFilesSync,
   disposeDebounce,
   getCurrentSelection,
@@ -52,18 +51,8 @@ import {
   refreshStatusBar,
   reinjectRecent,
   resetSelectionDedupe,
-  syncPinsOnlyContext,
   writeSelection,
 } from "./selectionWriter";
-import {
-  addPin,
-  clearPins,
-  getPins,
-  isPinned,
-  loadPins,
-  onPinsChanged,
-  removePin,
-} from "./pinnedContext";
 import {
   disposeFileOpener,
   initFileOpener,
@@ -117,7 +106,6 @@ function buildState(): State {
     howItWorksDismissed: extensionContext?.globalState.get<boolean>(HOW_IT_WORKS_DISMISSED_KEY, false) ?? false,
     recentCount: getRecentSelections().length,
     editsCount: 0,
-    pinsCount: getPins().length,
     selectionsWritten: getSessionStats().selectionsWritten,
   };
 }
@@ -240,84 +228,6 @@ async function runUninstall(): Promise<void> {
   vscode.window.showInformationMessage("Claude Bridge: uninstalled.");
 }
 
-// --- Pinned selections ---
-
-async function pinCurrentSelection(): Promise<void> {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor) {
-    vscode.window.showInformationMessage("Claude Bridge: no active editor.");
-    return;
-  }
-  if (editor.document.uri.scheme !== "file") {
-    vscode.window.showInformationMessage("Claude Bridge: only file-backed editors can be pinned.");
-    return;
-  }
-  if (editor.selection.isEmpty) {
-    vscode.window.showInformationMessage("Claude Bridge: select something to pin first.");
-    return;
-  }
-  const startLine = editor.selection.start.line + 1;
-  const endLine = editor.selection.end.line + 1;
-  const existing = isPinned(editor.document.uri.fsPath, startLine, endLine);
-  if (existing) {
-    removePin(existing.id);
-    vscode.window.showInformationMessage(
-      `Claude Bridge: unpinned ${path.basename(editor.document.uri.fsPath)} L${startLine}-${endLine}.`,
-    );
-    return;
-  }
-  const text = editor.document.getText(editor.selection);
-  const workspaceFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
-  const absolutePath = editor.document.uri.fsPath;
-  const relativePath = workspaceFolder
-    ? path.relative(workspaceFolder.uri.fsPath, absolutePath)
-    : path.basename(absolutePath);
-  const isSingleLine = editor.selection.start.line === editor.selection.end.line;
-  const fullLine = isSingleLine ? editor.document.lineAt(editor.selection.start.line).text : null;
-  const isPartial = isSingleLine && fullLine !== null && text !== fullLine.trim();
-
-  // Optional one-line note so the pinned block is self-describing.
-  const note = await vscode.window.showInputBox({
-    prompt: `Pin ${relativePath}:${startLine}-${endLine}`,
-    placeHolder: "Optional note (e.g. 'current schema' or 'the buggy util')",
-    value: "",
-  });
-  if (note === undefined) return; // user cancelled
-
-  addPin({
-    absolutePath,
-    relativePath,
-    startLine,
-    endLine,
-    lineCount: endLine - startLine + 1,
-    isPartial,
-    text,
-    fullLine,
-    startChar: editor.selection.start.character,
-    endChar: editor.selection.end.character,
-    note: note.trim(),
-  });
-  vscode.window.showInformationMessage(
-    `Claude Bridge: pinned ${relativePath} L${startLine}-${endLine}. ${getPins().length} pin${getPins().length === 1 ? "" : "s"} total.`,
-  );
-}
-
-async function unpinCurrentSelection(): Promise<void> {
-  const editor = vscode.window.activeTextEditor;
-  if (!editor) return;
-  const startLine = editor.selection.start.line + 1;
-  const endLine = editor.selection.end.line + 1;
-  const existing = isPinned(editor.document.uri.fsPath, startLine, endLine);
-  if (!existing) {
-    vscode.window.showInformationMessage("Claude Bridge: this exact range isn't pinned.");
-    return;
-  }
-  removePin(existing.id);
-  vscode.window.showInformationMessage(
-    `Claude Bridge: unpinned ${path.basename(editor.document.uri.fsPath)} L${startLine}-${endLine}.`,
-  );
-}
-
 // --- Command Center (palette-only; not wired to any UI surface) ---
 
 interface CommandEntry {
@@ -331,11 +241,9 @@ interface CommandEntry {
 async function openCommandCenter(): Promise<void> {
   const isMac = process.platform === "darwin";
   const kSym = isMac ? "\u2318\u21E7I" : "Ctrl+\u21E7I";
-  const kPin = isMac ? "\u2318\u21E7\u2325P" : "Ctrl+\u21E7Alt+P";
   const kCenter = isMac ? "\u2318\u21E7\u2325C" : "Ctrl+\u21E7Alt+C";
 
   const hasSelection = !!getCurrentSelection();
-  const pins = getPins();
   const recent = getRecentSelections();
 
   const entries: CommandEntry[] = [];
@@ -346,35 +254,6 @@ async function openCommandCenter(): Promise<void> {
     detail: "Wrap the enclosing function / class at the cursor and send it.",
     command: "claude-bridge.injectCurrentSymbol",
     kbd: kSym,
-  });
-
-  if (hasSelection) {
-    const sel = getCurrentSelection()!;
-    const alreadyPinned = !!pins.find((p) =>
-      p.relativePath === sel.relativePath &&
-      p.startLine === sel.startLine &&
-      p.endLine === sel.endLine,
-    );
-    entries.push({
-      label: alreadyPinned ? "$(pin) Unpin current selection" : "$(pin) Pin current selection",
-      description: kPin,
-      detail: alreadyPinned
-        ? `Remove the pin on ${sel.relativePath}:${sel.startLine}-${sel.endLine}.`
-        : `Keep ${sel.relativePath}:${sel.startLine}-${sel.endLine} in every prompt.`,
-      command: alreadyPinned
-        ? "claude-bridge.unpinSelection"
-        : "claude-bridge.pinSelection",
-      kbd: kPin,
-    });
-  }
-
-  entries.push({
-    label: `$(pin) Pinned selections`,
-    description: pins.length ? `${pins.length} pinned` : "none",
-    detail: pins.length
-      ? "Open, note, or unpin individual entries."
-      : "No pins yet. Pin a selection first.",
-    command: "claude-bridge.showPins",
   });
 
   entries.push({
@@ -394,12 +273,6 @@ async function openCommandCenter(): Promise<void> {
       description: "",
       detail: "Opens the Claude Bridge: Preview output channel.",
       command: "claude-bridge.preview",
-    });
-    entries.push({
-      label: "$(clear-all) Clear current selection",
-      description: "",
-      detail: "Deletes the bridge files. Claude stops seeing this selection.",
-      command: "claude-bridge.clearSelection",
     });
   }
 
@@ -438,90 +311,6 @@ async function openCommandCenter(): Promise<void> {
   });
   qp.onDidHide(() => qp.dispose());
   qp.show();
-}
-
-// --- Send git diff as Claude's context ---
-
-async function showPinsPicker(): Promise<void> {
-  const pins = getPins();
-  if (pins.length === 0) {
-    vscode.window.showInformationMessage("Claude Bridge: no pinned selections.");
-    return;
-  }
-  const removeBtn: vscode.QuickInputButton = {
-    iconPath: new vscode.ThemeIcon("close"),
-    tooltip: "Unpin",
-  };
-  const openBtn: vscode.QuickInputButton = {
-    iconPath: new vscode.ThemeIcon("go-to-file"),
-    tooltip: "Open",
-  };
-  const clearAllBtn: vscode.QuickInputButton = {
-    iconPath: new vscode.ThemeIcon("clear-all"),
-    tooltip: "Clear all pins",
-  };
-
-  const qp = vscode.window.createQuickPick<{ label: string; description?: string; detail?: string; pin: typeof pins[number]; buttons?: vscode.QuickInputButton[] }>();
-  qp.title = `Pinned context · ${pins.length} pin${pins.length === 1 ? "" : "s"}`;
-  qp.placeholder = "Select a pin to open the file, or use the icons to unpin";
-  qp.buttons = [clearAllBtn];
-  qp.matchOnDescription = true;
-  qp.matchOnDetail = true;
-
-  const refresh = (): void => {
-    const cur = getPins();
-    if (cur.length === 0) {
-      qp.hide();
-      return;
-    }
-    qp.items = cur.map((p) => ({
-      label: `$(pin) ${path.basename(p.relativePath)}:${p.startLine}-${p.endLine}`,
-      description: p.note || p.relativePath,
-      detail: "  " + (p.text.split("\n", 1)[0].slice(0, 100)),
-      pin: p,
-      buttons: [openBtn, removeBtn],
-    }));
-  };
-  refresh();
-
-  qp.onDidTriggerItemButton(async (ev) => {
-    if (ev.button === removeBtn) {
-      removePin(ev.item.pin.id);
-      refresh();
-    } else if (ev.button === openBtn) {
-      await openPinLocation(ev.item.pin);
-    }
-  });
-  qp.onDidTriggerButton((btn) => {
-    if (btn === clearAllBtn) {
-      clearPins();
-      qp.hide();
-    }
-  });
-  qp.onDidAccept(async () => {
-    const sel = qp.selectedItems[0];
-    if (sel) {
-      qp.hide();
-      await openPinLocation(sel.pin);
-    }
-  });
-  qp.onDidHide(() => qp.dispose());
-  qp.show();
-}
-
-async function openPinLocation(pin: { absolutePath: string; startLine: number; endLine: number }): Promise<void> {
-  try {
-    const uri = vscode.Uri.file(pin.absolutePath);
-    const doc = await vscode.workspace.openTextDocument(uri);
-    const editor = await vscode.window.showTextDocument(doc, { preview: false });
-    const start = new vscode.Position(Math.max(0, pin.startLine - 1), 0);
-    const endLineIdx = Math.min(pin.endLine - 1, doc.lineCount - 1);
-    const end = new vscode.Position(endLineIdx, doc.lineAt(endLineIdx).text.length);
-    editor.selection = new vscode.Selection(start, end);
-    editor.revealRange(new vscode.Range(start, end), vscode.TextEditorRevealType.InCenter);
-  } catch (err) {
-    vscode.window.showErrorMessage(`Claude Bridge: couldn't open pin — ${(err as Error).message}`);
-  }
 }
 
 // --- Inject current symbol ---
@@ -702,26 +491,6 @@ export function activate(context: vscode.ExtensionContext): void {
   initFileOpener((msg) => log(msg));
   setAutoOpenEnabled(getConfig().get<boolean>("autoOpenModifiedFiles", false));
 
-  // Load pins from disk. Pins survive across reloads because we persist them
-  // to ~/.claude-vscode-pinned.json (not just globalState), so the hook also
-  // sees them even when the extension isn't running.
-  loadPins();
-  context.subscriptions.push(
-    onPinsChanged(() => {
-      // Refresh context.json so pins take effect on the next prompt without
-      // waiting for a selection change to trigger a write.
-      void syncPinsOnlyContext();
-      // If there's a live selection, also re-run writeSelection so the
-      // combined (pins + selection) payload is current.
-      writeSelection(vscode.window.activeTextEditor);
-      broadcastState();
-    }),
-  );
-
-  // Claude-edits session log and diff/revert review were removed in 3.2.4.
-  // We still track edits internally so autoOpen can tail them, but nothing
-  // in the UI surfaces the list.
-
   sidebarProvider = new ClaudeBridgeSidebarProvider(
     context.extensionUri,
     buildState,
@@ -748,10 +517,6 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // Commands.
   context.subscriptions.push(
-    vscode.commands.registerCommand("claude-bridge.clearSelection", () => {
-      void cleanupFiles();
-      vscode.window.showInformationMessage("Claude Bridge: selection cleared.");
-    }),
     vscode.commands.registerCommand("claude-bridge.install", async () => {
       await runInstall();
     }),
@@ -806,30 +571,6 @@ export function activate(context: vscode.ExtensionContext): void {
     }),
     vscode.commands.registerCommand("claude-bridge.recentSelections", async () => {
       await showRecentSelectionsPicker();
-    }),
-    vscode.commands.registerCommand("claude-bridge.pinSelection", async () => {
-      await pinCurrentSelection();
-    }),
-    vscode.commands.registerCommand("claude-bridge.unpinSelection", async () => {
-      await unpinCurrentSelection();
-    }),
-    vscode.commands.registerCommand("claude-bridge.clearPins", async () => {
-      if (getPins().length === 0) {
-        vscode.window.showInformationMessage("Claude Bridge: no pins to clear.");
-        return;
-      }
-      const pick = await vscode.window.showWarningMessage(
-        `Clear all ${getPins().length} pinned selection${getPins().length === 1 ? "" : "s"}?`,
-        { modal: true },
-        "Clear",
-      );
-      if (pick === "Clear") {
-        clearPins();
-        vscode.window.showInformationMessage("Claude Bridge: cleared all pins.");
-      }
-    }),
-    vscode.commands.registerCommand("claude-bridge.showPins", async () => {
-      await showPinsPicker();
     }),
     vscode.commands.registerCommand("claude-bridge.commandCenter", async () => {
       await openCommandCenter();

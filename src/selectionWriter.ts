@@ -21,7 +21,6 @@ import {
 import { getConfig, isFileExcluded } from "./settings";
 import { normalizeSegments } from "./segments";
 import { SelectionInfo } from "./webview/messages";
-import { renderPinnedBlock } from "./pinnedContext";
 
 // --- Module state ---
 let debounceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -170,40 +169,10 @@ export async function cleanupFiles(): Promise<void> {
       fs.unlink(f + ".tmp").catch(() => {}),
     ]),
   );
-  // If pins are enabled and populated, immediately rewrite context.json with
-  // just the pinned block so the next Claude prompt still sees them.
-  await syncPinsOnlyContext();
   updateStatusBarItem(null);
   currentSelection = null;
   currentExtraRegions = 0;
   onSelectionChanged?.();
-}
-
-/**
- * Rewrite `~/.claude-vscode-context.json` using *only* the pinned block.
- * Called when the selection goes empty or when pins change. No-op if there
- * are no pins or the pin feature is disabled.
- */
-export async function syncPinsOnlyContext(): Promise<void> {
-  const cfg = getConfig();
-  if (!cfg.get<boolean>("contextInjection", true)) return;
-  if (!cfg.get<boolean>("pinnedContextEnabled", true)) return;
-  const pinned = renderPinnedBlock();
-  if (!pinned) return;
-  try {
-    await atomicWrite(
-      CONTEXT_FILE,
-      JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: "UserPromptSubmit",
-          additionalContext: pinned,
-        },
-      }),
-    );
-    lastContextMtimeSec = Math.floor(statSync(CONTEXT_FILE).mtimeMs / 1000);
-  } catch (err) {
-    logFn?.(`syncPinsOnlyContext: ${(err as Error).message}`);
-  }
 }
 
 export function cleanupFilesSync(): void {
@@ -356,7 +325,6 @@ function buildTooltip(_info: { path: string; lines: string } | null): vscode.Mar
   const actions: string[] = ["[Dashboard](command:claude-bridge.openDashboard)"];
   if (currentSelection) {
     actions.push("[Preview selection](command:claude-bridge.preview)");
-    actions.push("[Clear](command:claude-bridge.clearSelection)");
   } else {
     actions.push("[Full settings](command:claude-bridge.openSettings)");
   }
@@ -562,10 +530,6 @@ export function previewSelection(): void {
       `=== Multi-cursor selection (${extras.length + 1} regions) ===\n\n` +
       context + "\n\n" + extras.map(renderOne).join("\n\n");
   }
-  if (cfg.get<boolean>("pinnedContextEnabled", true)) {
-    const pinned = renderPinnedBlock();
-    if (pinned) context = pinned + "\n\n" + context;
-  }
 
   const startLine = primary.start.line + 1;
   const endLine = primary.end.line + 1;
@@ -763,10 +727,6 @@ export function writeSelection(editor: vscode.TextEditor | undefined): void {
           contextStr =
             `=== Multi-cursor selection (${extras.length + 1} regions) ===\n\n` +
             contextStr + "\n\n" + extras.join("\n\n");
-        }
-        if (cfg.get<boolean>("pinnedContextEnabled", true)) {
-          const pinned = renderPinnedBlock();
-          if (pinned) contextStr = pinned + "\n\n" + contextStr;
         }
         writes.push(
           atomicWrite(

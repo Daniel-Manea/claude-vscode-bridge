@@ -639,20 +639,6 @@ function renderContextCard(state: State): void {
   multiField.appendChild(buildMultiCursorPreview(state.settings.multiCursorSelection));
   root.appendChild(multiField);
 
-  // --- Pinned context ---
-  const pinField = document.createElement("div");
-  pinField.className = "field";
-  const pinRow = buildToggleRow(
-    "f-pinned",
-    "pinnedContextEnabled",
-    "Pinned context",
-    "Keep pinned selections in Claude\u2019s context on every prompt until unpinned. Pin with \u2318\u21E7\u2325P (Mac) / Ctrl+\u21E7Alt+P (Win/Linux) after selecting code. Off: pins are kept on disk but not injected.",
-    state.settings.pinnedContextEnabled,
-  );
-  pinField.appendChild(pinRow);
-  pinField.appendChild(buildPinPreview());
-  root.appendChild(pinField);
-
   // --- Excluded patterns ---
   const excField = document.createElement("div");
   excField.className = "field";
@@ -799,30 +785,6 @@ function buildMultiCursorPreview(on: boolean): HTMLElement {
   return box;
 }
 
-function buildPinPreview(): HTMLElement {
-  const box = document.createElement("div");
-  box.className = "partial-preview";
-  const lines: string[] = [
-    '<span class="tag">pinned + live</span>',
-    '=== Pinned context (2 pins) ===',
-    '<span class="path">schema.ts:1-40 (40 lines) \u2014 current schema</span>',
-    '<span class="fence">```</span>',
-    'export interface User { \u2026 }',
-    '<span class="fence">```</span>',
-    '<span class="path">config.ts:10-18 (9 lines) \u2014 feature flags</span>',
-    '<span class="fence">```</span>',
-    'export const FLAGS = { \u2026 }',
-    '<span class="fence">```</span>',
-    '',
-    '<span class="path">auth.ts:112 (1 line)  \u2190 live selection</span>',
-    '<span class="fence">```</span>',
-    '  <span class="selected">validateToken(req.user)</span>',
-    '<span class="fence">```</span>',
-  ];
-  box.innerHTML = lines.join("\n");
-  return box;
-}
-
 function buildPartialLinePreview(showPartial: boolean): HTMLElement {
   const box = document.createElement("div");
   box.className = "partial-preview";
@@ -862,7 +824,7 @@ function renderCommandCenterCard(state: State): void {
     "f-showInlineActions",
     "showInlineActions",
     "Inline actions in the editor lightbulb",
-    "Place your cursor or make a selection, click the 💡 that appears, and pick any Claude Bridge action. Selection-aware: Pin / Preview show up when a selection exists; Inject symbol / Send git diff / Command Center are always available.",
+    "Place your cursor or make a selection, click the 💡 that appears, and pick any Claude Bridge action. Preview shows up when a selection exists; Inject enclosing symbol is always available.",
     state.settings.showInlineActions,
   ));
   root.appendChild(bulbField);

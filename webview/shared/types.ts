@@ -32,7 +32,6 @@ export interface CoreSettings {
   includeDiagnostics: boolean;
   includeTypeContext: boolean;
   multiCursorSelection: boolean;
-  pinnedContextEnabled: boolean;
   commandCenterOnStatusClick: boolean;
   showInlineActions: boolean;
   activePreset: string;
@@ -60,7 +59,6 @@ export interface State {
   howItWorksDismissed: boolean;
   recentCount: number;
   editsCount: number;
-  pinsCount: number;
   selectionsWritten: number;
 }
 

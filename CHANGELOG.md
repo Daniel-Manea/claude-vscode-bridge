@@ -4,6 +4,24 @@ All notable changes to **Claude Bridge** are documented here. The format follows
 
 ---
 
+## 3.2.10
+
+### Removed
+
+- **Pinned-context feature.** The pin flow interrupted you with a note-input prompt every time, and there was no in-editor way to see or unpin — you had to reselect the exact same range or dig through the command palette. Rather than build a pins panel for a workflow that wasn't being used, the whole feature is gone: `claude-bridge.pinSelection` / `unpinSelection` / `clearPins` / `showPins` commands, the `claudeBridge.pinnedContextEnabled` setting, the pin keybinding (`⌘⇧⌥P`), the pin row in the lightbulb, and the `~/.claude-vscode-pinned.json` persistence file. If you had pins saved, they'll simply stop injecting.
+- **`Clear Selection` command.** Redundant with "click anywhere to deselect" — the writer already calls `cleanupFiles` automatically when the selection goes empty. Removed from the command palette, the lightbulb menu, and the status-bar tooltip.
+
+### Changed
+
+- **Lightbulb titles now use the Claude Bridge logo as prefix** — `⟨✱⟩ Preview what Claude will see` instead of `Claude Bridge · Preview what Claude will see`. CodeAction titles can't include custom images, and `⟨✱⟩` is the closest textual rendering of the medallion: two chevrons wrapping the terracotta spark, which is literally how the icon is drawn.
+- **Command Center slimmed to real actions** — Inject symbol, Recent selections, Preview, Dashboard, Full settings.
+
+### Fixed
+
+- **Right-click → Claude Bridge submenu actually renders now.** `package.json` had two `"menus"` keys in the same object — JSON parsers silently keep the last one, so the editor context submenu never registered. Merged into a single block. The submenu now shows *Preview* (when a selection exists) and *Inject enclosing symbol*.
+
+---
+
 ## 3.2.9
 
 ### Changed

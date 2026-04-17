@@ -16,7 +16,6 @@ export interface ClaudeBridgeSettings {
   includeDiagnostics: boolean;
   includeTypeContext: boolean;
   multiCursorSelection: boolean;
-  pinnedContextEnabled: boolean;
   commandCenterOnStatusClick: boolean;
   showInlineActions: boolean;
   activePreset: string;
@@ -51,7 +50,6 @@ export interface State {
   /** Counters shown in the sidebar. */
   recentCount: number;
   editsCount: number;
-  pinsCount: number;
   /** Total successful selection writes this session (i.e. times the bridge files got rewritten). */
   selectionsWritten: number;
 }

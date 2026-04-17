@@ -2,7 +2,7 @@
   "name": "claude-vscode-bridge",
   "displayName": "Claude Bridge",
   "description": "Pipes your VS Code selection into Claude Code. Select code, ask a question — Claude sees it automatically.",
-  "version": "3.2.9",
+  "version": "3.2.10",
   "publisher": "Daniel-Manea",
   "license": "MIT",
   "icon": "media/logo.png",
@@ -59,11 +59,6 @@
       ]
     },
     "commands": [
-      {
-        "command": "claude-bridge.clearSelection",
-        "title": "Clear Selection",
-        "category": "Claude Bridge"
-      },
       {
         "command": "claude-bridge.install",
         "title": "Install",
@@ -126,26 +121,6 @@
         "category": "Claude Bridge"
       },
       {
-        "command": "claude-bridge.pinSelection",
-        "title": "Pin Selection to Claude's Context",
-        "category": "Claude Bridge"
-      },
-      {
-        "command": "claude-bridge.unpinSelection",
-        "title": "Unpin Selection",
-        "category": "Claude Bridge"
-      },
-      {
-        "command": "claude-bridge.clearPins",
-        "title": "Clear All Pins",
-        "category": "Claude Bridge"
-      },
-      {
-        "command": "claude-bridge.showPins",
-        "title": "Show Pins…",
-        "category": "Claude Bridge"
-      },
-      {
         "command": "claude-bridge.commandCenter",
         "title": "Command Center",
         "category": "Claude Bridge"
@@ -159,15 +134,15 @@
         "when": "editorTextFocus"
       },
       {
-        "command": "claude-bridge.pinSelection",
-        "key": "ctrl+shift+alt+p",
-        "mac": "cmd+shift+alt+p",
-        "when": "editorTextFocus && editorHasSelection"
-      },
-      {
         "command": "claude-bridge.commandCenter",
         "key": "ctrl+shift+alt+c",
         "mac": "cmd+shift+alt+c"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "claude-bridge.editorContext",
+        "label": "Claude Bridge"
       }
     ],
     "menus": {
@@ -179,7 +154,7 @@
       ],
       "claude-bridge.editorContext": [
         {
-          "command": "claude-bridge.pinSelection",
+          "command": "claude-bridge.preview",
           "when": "editorHasSelection",
           "group": "1_selection@1"
         },
@@ -187,15 +162,7 @@
           "command": "claude-bridge.injectCurrentSymbol",
           "group": "1_selection@2"
         }
-      ]
-    },
-    "submenus": [
-      {
-        "id": "claude-bridge.editorContext",
-        "label": "Claude Bridge"
-      }
-    ],
-    "menus": {
+      ],
       "view/title": [
         {
           "command": "claude-bridge.openSettings",
@@ -283,11 +250,6 @@
           "type": "boolean",
           "default": true,
           "description": "When multiple cursors are active, bundle every selected region into the injected context instead of just the primary one."
-        },
-        "claudeBridge.pinnedContextEnabled": {
-          "type": "boolean",
-          "default": true,
-          "description": "Allow pinning a selection so it stays in Claude's context on every prompt until unpinned. Unchecked: pins are kept on disk but not injected."
         },
         "claudeBridge.commandCenterOnStatusClick": {
           "type": "boolean",

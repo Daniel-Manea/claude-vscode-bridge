@@ -108,11 +108,11 @@ export class ClaudeBridgeSettingsPanel {
       </div>
       <ol class="how-steps">
         <li><b>Select</b> any code in any file.</li>
-        <li><b>Use the 💡 lightbulb</b> in the editor (or right-click \u2192 <em>Claude Bridge</em>) for pin / preview / inject-symbol.</li>
+        <li><b>Use the 💡 lightbulb</b> in the editor (or right-click \u2192 <em>Claude Bridge</em>) to preview the selection or inject the enclosing symbol.</li>
         <li><b>Ask Claude</b> in your terminal \u2014 the selection is already in the next prompt's context.</li>
       </ol>
       <div class="how-foot">
-        Pin a selection to keep it across every prompt. Multi-cursor selections bundle together. Diagnostics on the selected range are attached automatically.
+        Multi-cursor selections bundle together. Diagnostics on the selected range are attached automatically.
       </div>
     </section>
 

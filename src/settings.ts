@@ -31,7 +31,6 @@ export function readSettings(): ClaudeBridgeSettings {
     includeDiagnostics: cfg.get<boolean>("includeDiagnostics", true),
     includeTypeContext: cfg.get<boolean>("includeTypeContext", false),
     multiCursorSelection: cfg.get<boolean>("multiCursorSelection", true),
-    pinnedContextEnabled: cfg.get<boolean>("pinnedContextEnabled", true),
     commandCenterOnStatusClick: cfg.get<boolean>("commandCenterOnStatusClick", true),
     showInlineActions: cfg.get<boolean>("showInlineActions", true),
     activePreset: cfg.get<string>("activePreset", "default"),
