@@ -73,8 +73,7 @@ function render(state: State): void {
     renderAutoOpenCard(state);
   }
   if (!prev ||
-      prev.settings.commandCenterOnStatusClick !== state.settings.commandCenterOnStatusClick ||
-      prev.settings.showSessionStats !== state.settings.showSessionStats) {
+      prev.settings.showInlineActions !== state.settings.showInlineActions) {
     renderCommandCenterCard(state);
   }
 
@@ -865,18 +864,6 @@ function renderCommandCenterCard(state: State): void {
   ));
   root.appendChild(bulbField);
 
-  // Session stats toggle (kept — it's passive, not an action).
-  const statsField = document.createElement("div");
-  statsField.className = "field";
-  statsField.appendChild(buildToggleRow(
-    "f-showSessionStats",
-    "showSessionStats",
-    "Show session stats in sidebar",
-    "Live-updating row at the top of the dashboard: selections sent, files Claude edited, pins active.",
-    state.settings.showSessionStats,
-  ));
-  statsField.appendChild(buildSessionStripMock());
-  root.appendChild(statsField);
 }
 
 function buildCommandCenterMock(): HTMLElement {

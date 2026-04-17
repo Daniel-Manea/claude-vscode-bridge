@@ -18,7 +18,6 @@ export interface ClaudeBridgeSettings {
   multiCursorSelection: boolean;
   pinnedContextEnabled: boolean;
   commandCenterOnStatusClick: boolean;
-  showSessionStats: boolean;
   showInlineActions: boolean;
   activePreset: string;
   excludedPatterns: string[];

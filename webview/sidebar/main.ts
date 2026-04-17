@@ -34,67 +34,11 @@ function render(state: State): void {
   if (!prev || prev.setupCompleted !== state.setupCompleted) renderSetup(state);
 
   // Hot sections — idempotent diff-render.
-  renderSessionStrip(state);
   renderStatusGrid(state);
   renderPresets(state);
   renderSegments(state);
 
   applySidebarDim(state);
-}
-
-// ---------- Session strip ----------
-
-interface StripNodes {
-  root: HTMLElement;
-  selections: HTMLElement;
-  edits: HTMLElement;
-  pins: HTMLElement;
-}
-let stripNodes: StripNodes | null = null;
-
-function renderSessionStrip(state: State): void {
-  const root = document.getElementById("sessionStrip");
-  if (!root) return;
-
-  const enabled = state.settings.showSessionStats && state.setupCompleted;
-  if (!enabled) {
-    root.innerHTML = "";
-    stripNodes = null;
-    return;
-  }
-
-  if (!stripNodes) {
-    root.innerHTML = "";
-    const sel = stat(root, "selections", "selections sent");
-    sep(root);
-    const ed = stat(root, "edits", "files Claude edited");
-    sep(root);
-    const pin = stat(root, "pins", "pinned");
-    stripNodes = { root, selections: sel, edits: ed, pins: pin };
-  }
-  stripNodes.selections.textContent = String(state.selectionsWritten);
-  stripNodes.edits.textContent = String(state.editsCount);
-  stripNodes.pins.textContent = String(state.pinsCount);
-}
-
-function stat(parent: HTMLElement, id: string, label: string): HTMLElement {
-  const wrap = document.createElement("span");
-  wrap.className = "stat";
-  const b = document.createElement("b");
-  b.dataset.role = id;
-  b.textContent = "0";
-  const s = document.createElement("span");
-  s.textContent = label;
-  wrap.append(b, s);
-  parent.appendChild(wrap);
-  return b;
-}
-
-function sep(parent: HTMLElement): void {
-  const s = document.createElement("span");
-  s.className = "sep";
-  s.textContent = "\u00B7";
-  parent.appendChild(s);
 }
 
 function applySidebarDim(state: State): void {

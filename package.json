@@ -2,7 +2,7 @@
   "name": "claude-vscode-bridge",
   "displayName": "Claude Bridge",
   "description": "Pipes your VS Code selection into Claude Code. Select code, ask a question — Claude sees it automatically.",
-  "version": "3.2.4",
+  "version": "3.2.5",
   "publisher": "Daniel-Manea",
   "license": "MIT",
   "icon": "media/logo.png",
@@ -293,11 +293,6 @@
           "type": "boolean",
           "default": true,
           "description": "Clicking the VS Code status-bar item opens the Claude Bridge Command Center (unified quickpick). Off: clicking opens the dashboard."
-        },
-        "claudeBridge.showSessionStats": {
-          "type": "boolean",
-          "default": true,
-          "description": "Show a live session-stats row at the top of the dashboard: selections sent, files Claude edited, token / cost totals."
         },
         "claudeBridge.showInlineActions": {
           "type": "boolean",

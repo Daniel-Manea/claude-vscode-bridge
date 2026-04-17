@@ -75,8 +75,6 @@ export class ClaudeBridgeSidebarProvider implements vscode.WebviewViewProvider {
 
     <section class="setup-section" id="setupSection"></section>
 
-    <section class="session-strip" id="sessionStrip" aria-label="Session stats"></section>
-
     <section class="cb-section" id="statusSection" aria-label="Feature toggles">
       <div class="cb-eyebrow"><span class="eyebrow-label">Toggles</span></div>
       <div class="status-grid" id="statusGrid"></div>

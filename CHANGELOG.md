@@ -4,6 +4,14 @@ All notable changes to **Claude Bridge** are documented here. The format follows
 
 ---
 
+## 3.2.5
+
+### Removed
+
+- **Session stats strip** and its toggle. Sidebar goes back to pure configuration — brand / setup / toggles / preset / segments / footer. No passive telemetry widget, no setting to manage it.
+
+---
+
 ## 3.2.4
 
 ### Removed
