@@ -2,7 +2,7 @@
   "name": "claude-vscode-bridge",
   "displayName": "Claude Bridge",
   "description": "Pipes your VS Code selection into Claude Code. Select code, ask a question — Claude sees it automatically.",
-  "version": "3.2.6",
+  "version": "3.2.7",
   "publisher": "Daniel-Manea",
   "license": "MIT",
   "icon": "media/logo.png",

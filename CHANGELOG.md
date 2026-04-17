@@ -4,6 +4,14 @@ All notable changes to **Claude Bridge** are documented here. The format follows
 
 ---
 
+## 3.2.7
+
+### Fixed
+
+- **Preview matches what Claude actually receives.** `Claude Bridge: Preview Current Selection` now runs the same pipeline as the live writer — multi-cursor regions, diagnostics, and pinned context are all included. Previously the preview only showed the primary selection, so the "you have +2 regions" status line disagreed with what the preview reported.
+
+---
+
 ## 3.2.6
 
 ### Fixed

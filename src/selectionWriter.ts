@@ -508,17 +508,26 @@ function buildSelectionStatusLine(
 
 export function previewSelection(): void {
   const editor = vscode.window.activeTextEditor;
-  if (!editor || editor.selection.isEmpty) {
-    vscode.window.showInformationMessage("Claude Bridge: no selection.");
+  if (!editor) {
+    vscode.window.showInformationMessage("Claude Bridge: no active editor.");
     return;
   }
-
-  const selection = editor.selection;
-  const text = editor.document.getText(selection);
-  if (text.trim().length === 0) {
-    vscode.window.showInformationMessage("Claude Bridge: selection is whitespace-only.");
+  const cfg = getConfig();
+  const multiCursor = cfg.get<boolean>("multiCursorSelection", true);
+  const includeDiag = cfg.get<boolean>("includeDiagnostics", true);
+  const allSelections = multiCursor ? editor.selections.slice() : [editor.selection];
+  const nonEmpty = allSelections.filter(
+    (s) => !s.isEmpty && editor.document.getText(s).trim().length > 0,
+  );
+  if (nonEmpty.length === 0) {
+    vscode.window.showInformationMessage("Claude Bridge: no non-empty selection.");
     return;
   }
+  // Primary = first non-empty; extras = the rest. Same policy as writeSelection.
+  const primary = !editor.selection.isEmpty && editor.document.getText(editor.selection).trim().length > 0
+    ? editor.selection
+    : nonEmpty[0];
+  const extras = nonEmpty.filter((s) => s !== primary);
 
   const workspaceFolder = vscode.workspace.getWorkspaceFolder(editor.document.uri);
   const absolutePath = editor.document.uri.fsPath;
@@ -526,31 +535,50 @@ export function previewSelection(): void {
     ? path.relative(workspaceFolder.uri.fsPath, absolutePath)
     : path.basename(absolutePath);
 
-  const startLine = selection.start.line + 1;
-  const endLine = selection.end.line + 1;
+  const renderOne = (sel: vscode.Selection): string => {
+    const text = editor.document.getText(sel);
+    const s = sel.start.line + 1;
+    const e = sel.end.line + 1;
+    const lc = e - s + 1;
+    const single = sel.start.line === sel.end.line;
+    const fullLine = single ? editor.document.lineAt(sel.start.line).text : null;
+    const partial = single && fullLine !== null && text !== fullLine.trim();
+    const diag = includeDiag ? collectDiagnostics(editor.document.uri, sel) : [];
+    return buildContext(
+      relativePath,
+      s,
+      e,
+      lc,
+      text,
+      partial ? fullLine : null,
+      sel.start.character,
+      sel.end.character,
+      diag,
+    );
+  };
+  let context = renderOne(primary);
+  if (extras.length > 0) {
+    context =
+      `=== Multi-cursor selection (${extras.length + 1} regions) ===\n\n` +
+      context + "\n\n" + extras.map(renderOne).join("\n\n");
+  }
+  if (cfg.get<boolean>("pinnedContextEnabled", true)) {
+    const pinned = renderPinnedBlock();
+    if (pinned) context = pinned + "\n\n" + context;
+  }
+
+  const startLine = primary.start.line + 1;
+  const endLine = primary.end.line + 1;
   const lineCount = endLine - startLine + 1;
-  const isSingleLine = selection.start.line === selection.end.line;
-  const fullLineText = isSingleLine
-    ? editor.document.lineAt(selection.start.line).text
-    : null;
+  const singleLine = primary.start.line === primary.end.line;
   const isPartial =
-    isSingleLine && fullLineText !== null && text !== fullLineText.trim();
-
-  const context = buildContext(
-    relativePath,
-    startLine,
-    endLine,
-    lineCount,
-    text,
-    isPartial ? fullLineText : null,
-    selection.start.character,
-    selection.end.character,
-  );
-
-  const maxPath = getConfig().get<number>("statusLineMaxPath", 30);
-  const pathStyle = getConfig().get<string>("statusLinePathStyle", "basename");
+    singleLine &&
+    editor.document.getText(primary) !== editor.document.lineAt(primary.start.line).text.trim();
+  const maxPath = cfg.get<number>("statusLineMaxPath", 30);
+  const pathStyle = cfg.get<string>("statusLinePathStyle", "basename");
   const displayPath = formatPath(relativePath, pathStyle, maxPath);
   const lineRef = isPartial ? `#L${startLine}` : `#${startLine}-${endLine}`;
+  const extraLabel = extras.length > 0 ? ` +${extras.length}` : "";
 
   const panel = vscode.window.createOutputChannel("Claude Bridge: Preview");
   panel.clear();
@@ -560,7 +588,7 @@ export function previewSelection(): void {
   panel.appendLine("");
   panel.appendLine("=== Status line (selection segment) ===");
   panel.appendLine(
-    `@${displayPath}${lineRef} ${isPartial ? "(selection)" : `(${lineCount} lines)`}`,
+    `@${displayPath}${lineRef}${extraLabel} ${isPartial ? "(selection)" : `(${lineCount} lines)`}`,
   );
   panel.appendLine("");
   panel.appendLine("=== Segment order ===");
