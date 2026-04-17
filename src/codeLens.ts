@@ -5,12 +5,13 @@ import * as vscode from "vscode";
 
 import { getConfig } from "./settings";
 
-const MARK = "\u2731";
+// Each title starts with "Claude Bridge · " so the brand is the first thing
+// the user reads in the lightbulb menu. VS Code groups actions by
+// CodeActionKind and doesn't expose a way to relabel the "More Actions…"
+// header, so branding the individual titles is the cleanest way to make the
+// group self-identify.
+const BRAND = "Claude Bridge \u00B7 ";
 
-/** CodeAction provider — surfaces Claude Bridge actions via VS Code's
- *  lightbulb 💡 anywhere you have a cursor in a file. Click the bulb, pick
- *  an action, it runs.
- */
 export class ClaudeBridgeActionsProvider implements vscode.CodeActionProvider {
   static readonly providedCodeActionKinds = [vscode.CodeActionKind.Refactor];
 
@@ -26,13 +27,13 @@ export class ClaudeBridgeActionsProvider implements vscode.CodeActionProvider {
 
     if (hasSelection) {
       actions.push(
-        this.make(`${MARK} Pin selection to Claude's context`, "claude-bridge.pinSelection"),
-        this.make(`${MARK} Preview what Claude will see`, "claude-bridge.preview"),
-        this.make(`${MARK} Clear current selection`, "claude-bridge.clearSelection"),
+        this.make(`${BRAND}Pin selection to Claude's context`, "claude-bridge.pinSelection"),
+        this.make(`${BRAND}Preview what Claude will see`, "claude-bridge.preview"),
+        this.make(`${BRAND}Clear current selection`, "claude-bridge.clearSelection"),
       );
     }
     actions.push(
-      this.make(`${MARK} Inject enclosing symbol`, "claude-bridge.injectCurrentSymbol"),
+      this.make(`${BRAND}Inject enclosing symbol`, "claude-bridge.injectCurrentSymbol"),
     );
     return actions;
   }

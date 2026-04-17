@@ -4,6 +4,14 @@ All notable changes to **Claude Bridge** are documented here. The format follows
 
 ---
 
+## 3.2.9
+
+### Changed
+
+- **Lightbulb titles lead with the brand.** Every row in the editor's 💡 menu now reads `Claude Bridge · <action>` instead of just `✱ <action>`. VS Code groups actions by `CodeActionKind` and doesn't expose a way to rename the "More Actions..." header, so the clearest path to "these are Claude Bridge actions" is to put the brand at the front of each title.
+
+---
+
 ## 3.2.8
 
 ### Added
