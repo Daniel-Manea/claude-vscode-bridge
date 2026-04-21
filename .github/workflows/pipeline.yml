@@ -1,0 +1,15 @@
+name: Release Pipeline
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: read
+
+jobs:
+  release:
+    name: Release
+    uses: ./.github/workflows/step-release.yml
+    secrets: inherit
